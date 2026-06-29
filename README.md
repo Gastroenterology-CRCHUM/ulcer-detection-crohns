@@ -234,7 +234,8 @@ local weight files — see [Data Preparation](#data-preparation) below.
 
 ### GastroNet weight files
 
-Download from the [GastroNet-5M paper](https://doi.org/10.1053/j.gastro.2025.09.014)
+Download from the [GastroNet-5M paper](https://doi.org/10.1053/j.gastro.2025.07.030)
+Weights available [here](https://cortex.thetavision.nl/dataset-provider/listing/2/): 
 and place in `data/assets/pretrained/`:
 
 | File | Required by |
