@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ulcers-detection"
+version = "0.1.0"
+description = "Deep-learning pipeline for gastrointestinal ulcer detection and size classification"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+
+dependencies = [
+    "torch>=2.0.1",
+    "torchvision>=0.15.2",
+    "timm>=0.9.0",
+    "transformers>=4.30.0",
+    "numpy>=1.24.4,<2.0.0",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.3.0",
+    "scikit-image>=0.20.0",
+    "scikit-posthocs>=0.9.0",
+    "openpyxl>=3.1.0",
+    "pytesseract>=0.3.10",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "tqdm>=4.65.0",
+    "mlflow>=2.7.0",
+    "statsmodels>=0.14.0",
+    "ipykernel>=6.25.0",
+    "ipywidgets>=8.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+    "opencv-python-headless>=4.8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--tb=short",
+    "-q",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning:mlflow",
+]
+
+# ---------------------------------------------------------------------------
+# ruff (linter + formatter)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function call in default arg (common in argparse)
+    "B905",  # zip() strict= — too noisy for scientific code with matched arrays
+    "SIM115", # context manager for NamedTemporaryFile patterns
+    "UP007", # X | Y syntax (keep for readability with Optional)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# sys.path manipulation must precede src imports in CLI entry-points
+"scripts/run_experiments.py" = ["E402"]
+"scripts/noninformative/train_noninformative.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "scripts"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

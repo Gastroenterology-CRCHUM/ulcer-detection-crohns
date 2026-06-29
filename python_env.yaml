@@ -1,0 +1,26 @@
+python: "3.10"
+build_dependencies:
+  - pip
+
+dependencies:
+  - torch
+  - torchvision
+  - timm
+  - transformers
+  - scikit-learn
+  - scikit-image
+  - scikit-posthocs
+  - pandas
+  - numpy
+  - opencv-python
+  - pillow
+  - openpyxl
+  - tqdm
+  - matplotlib
+  - scipy
+  - joblib
+  - mlflow
+  - pyyaml
+  - statsmodels
+  - pytest
+  - pytest-cov

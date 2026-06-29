@@ -1,0 +1,41 @@
+============================================================================
+                    ULCER PREPROCESSING PIPELINE REPORT                     
+============================================================================
+
+1. ANNOTATION WINDOWS (from Excel)
+----------------------------------
+  Total annotation windows : 147
+    NonUlcer                82 windows
+    Ulcer                   65 windows
+
+  NonUlcer              mean 4.3s ± 1.0s  [min 2.0 – max 5.0 | median 5.0]  total 5.9 min
+  Ulcer                 mean 2.9s ± 1.4s  [min 1.0 – max 5.0 | median 3.0]  total 3.1 min
+  Overall               mean 3.7s ± 1.4s  [min 1.0 – max 5.0 | median 4.0]  total 9.0 min
+
+2. FRAME AND CLIP COUNTS BY STAGE
+---------------------------------
+  Stage                  Frames    Clips Ulcer frNonUlc fr Ulcer clNonUlc cl
+  --------------------------------------------------------------------------
+  Raw                     4,635      146    1,447    3,188       58       88
+  Processed               4,635      146    1,447    3,188       58       88
+  Filtrated               4,495      146    1,407    3,088       58       88
+
+3. CLIP DURATION BY STAGE (@ 10.0 FPS)
+--------------------------------------
+
+  Raw
+    Overall               mean 3.2s ± 1.3s  [min 0.1 – max 5.1 | median 3.1]  total 7.7 min
+    Ulcer                 mean 2.5s ± 1.2s  [min 0.5 – max 5.1 | median 2.2]  total 2.4 min
+    NonUlcer              mean 3.6s ± 1.2s  [min 0.1 – max 5.1 | median 3.8]  total 5.3 min
+
+  Processed
+    Overall               mean 3.2s ± 1.3s  [min 0.1 – max 5.1 | median 3.1]  total 7.7 min
+    Ulcer                 mean 2.5s ± 1.2s  [min 0.5 – max 5.1 | median 2.2]  total 2.4 min
+    NonUlcer              mean 3.6s ± 1.2s  [min 0.1 – max 5.1 | median 3.8]  total 5.3 min
+
+  Filtrated
+    Overall               mean 3.1s ± 1.3s  [min 0.1 – max 5.1 | median 3.0]  total 7.5 min
+    Ulcer                 mean 2.4s ± 1.2s  [min 0.5 – max 5.1 | median 2.1]  total 2.3 min
+    NonUlcer              mean 3.5s ± 1.2s  [min 0.1 – max 5.0 | median 3.7]  total 5.1 min
+
+============================================================================

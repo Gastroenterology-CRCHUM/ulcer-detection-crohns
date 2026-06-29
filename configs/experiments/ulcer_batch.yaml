@@ -1,0 +1,59 @@
+# Experiment plan — 9 model configurations reported in the paper:
+# "Domain-Specific Foundation Models Versus Conventional Deep Learning
+#  for Automated Ulcer Detection in Crohn's Disease"
+# Berndt*, Mashayekhi* et al.
+#
+# All runs use 5-fold patient-stratified cross-validation.
+# Pass --heldout-manifest data/ulcer/splits/heldout_temporal_manifest.csv
+# to evaluate each fold's model on the temporal held-out test set.
+#
+# Shared defaults: epochs=100 (early stopping patience=10), batch_size=64,
+# dropout=0.5, weight_decay=1e-2, optimizer=AdamW, warmup_epochs=5.
+#
+# Usage:
+#   python scripts/run_experiments.py \
+#       --plan configs/experiments/ulcer_batch.yaml \
+#       --heldout-manifest data/ulcer/splits/heldout_temporal_manifest.csv
+
+defaults:
+  mode: cv
+  n_splits: 5
+  freeze_layers: 0
+  epochs: 100
+  batch_size: 64
+  dropout_rate: 0.5
+  weight_decay: 1.0e-2
+  label_smoothing: 0.0
+  register: false
+
+runs:
+  # ── ResNet-50 ─────────────────────────────────────────────────────────
+  - model: resnet50_imagenet_sup    # Supervised / ImageNet-1K
+    lr: 1.0e-4
+
+  - model: resnet50_imagenet        # DINOv1 / ImageNet
+    lr: 1.0e-5
+
+  - model: resnet50_gastronet       # DINOv1 / GastroNet-5M
+    lr: 1.0e-6
+
+  # ── EfficientNet-B0 ───────────────────────────────────────────────────
+  - model: efficientnetb0           # Supervised / ImageNet-1K
+    lr: 3.0e-5
+
+  # ── ViT-Base/16 ───────────────────────────────────────────────────────
+  - model: vitb16_imagenet_sup      # Supervised / ImageNet-1K
+    lr: 1.0e-4
+
+  - model: vitb16_imagenet          # DINOv1 / ImageNet
+    lr: 1.0e-6
+
+  # ── ViT-Small/16 ──────────────────────────────────────────────────────
+  - model: vits16_imagenet_hf       # Supervised / ImageNet-1K (timm AugReg)
+    lr: 1.0e-5
+
+  - model: vits16_imagenet          # DINOv1 / ImageNet
+    lr: 1.0e-6
+
+  - model: vits16_gastronet         # DINOv1 / GastroNet-5M
+    lr: 1.0e-6

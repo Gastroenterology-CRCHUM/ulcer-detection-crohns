@@ -1,0 +1,47 @@
+name: ulcer_detection
+
+python_env: python_env.yaml
+
+entry_points:
+
+  # ── Main training (single model) ─────────────────────────────────
+  train:
+    parameters:
+      mode:             {type: str,   default: "cv"}
+      n_splits:         {type: int,   default: 5}
+      register:         {type: str,   default: "false"}
+    command: >
+      python -m scripts.ulcer.train
+        --mode {mode}
+        --n-splits {n_splits}
+        $([ "{register}" = "true" ] && echo "--register")
+
+  # ── Batch experiments (all 9 paper configurations) ────────────────
+  run_experiments:
+    parameters:
+      plan:     {type: str, default: "configs/experiments/ulcer_batch.yaml"}
+      heldout:  {type: str, default: "data/ulcer/splits/heldout_temporal_manifest.csv"}
+    command: >
+      python scripts/run_experiments.py
+        --plan {plan}
+        --heldout-manifest {heldout}
+
+  # ── Multi-model DeLong evaluation ────────────────────────────────
+  evaluate:
+    parameters:
+      run_id:   {type: str}
+      manifest: {type: str, default: "data/ulcer/splits/heldout_temporal_manifest.csv"}
+      data_dir: {type: str, default: "data/ulcer/filtrated"}
+    command: >
+      python -m scripts.ulcer.evaluate_with_delong
+        --run-id {run_id}
+        --manifest {manifest}
+        --data-dir {data_dir}
+
+  # ── Preprocessing ─────────────────────────────────────────────────
+  preprocess:
+    parameters:
+      skip_preprocess: {type: str, default: "false"}
+    command: >
+      python -m scripts.ulcer.preprocess
+        $([ "{skip_preprocess}" = "true" ] && echo "--skip-preprocess")

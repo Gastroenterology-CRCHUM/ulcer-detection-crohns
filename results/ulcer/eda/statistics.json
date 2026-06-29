@@ -1,0 +1,213 @@
+{
+  "dataset_stats": {
+    "patients": {
+      "total": 25,
+      "ulcer_positive": 21,
+      "ulcer_negative": 4
+    },
+    "clips": {
+      "total": 146,
+      "ulcer_positive": 58,
+      "ulcer_negative": 88,
+      "frames_per_clip": {
+        "mean": 30.78767123287671,
+        "std": 13.261408311394066,
+        "min": 1,
+        "max": 51,
+        "median": 30.0,
+        "fps": 10.0,
+        "duration_s_mean": 3.078767123287671,
+        "duration_s_std": 1.3261408311394065,
+        "duration_s_min": 0.1,
+        "duration_s_max": 5.1,
+        "duration_s_median": 3.0
+      }
+    },
+    "frames": {
+      "total": 4495,
+      "ulcer_positive": 1407,
+      "ulcer_negative": 3088
+    },
+    "per_split": {
+      "train": {
+        "n_patients": 16,
+        "n_clips": 92,
+        "n_clips_ulcer": 37,
+        "n_clips_non_ulcer": 55,
+        "n_frames": 2762,
+        "n_frames_ulcer": 900,
+        "n_frames_non_ulcer": 1862,
+        "pct_of_total": 61.4460511679644,
+        "ulcer_size_clips": {
+          "<5mm": 11,
+          "5-20mm": 16,
+          ">20mm": 3,
+          "unknown": 7
+        },
+        "ulcer_size_clips_pct": {
+          "<5mm": 29.72972972972973,
+          "5-20mm": 43.24324324324324,
+          ">20mm": 8.108108108108109,
+          "unknown": 18.91891891891892
+        }
+      },
+      "val": {
+        "n_patients": 4,
+        "n_clips": 32,
+        "n_clips_ulcer": 11,
+        "n_clips_non_ulcer": 21,
+        "n_frames": 1065,
+        "n_frames_ulcer": 296,
+        "n_frames_non_ulcer": 769,
+        "pct_of_total": 23.692992213570633,
+        "ulcer_size_clips": {
+          "<5mm": 2,
+          "5-20mm": 3,
+          ">20mm": 6,
+          "unknown": 0
+        },
+        "ulcer_size_clips_pct": {
+          "<5mm": 18.181818181818183,
+          "5-20mm": 27.27272727272727,
+          ">20mm": 54.54545454545454,
+          "unknown": 0.0
+        }
+      },
+      "test": {
+        "n_patients": 5,
+        "n_clips": 22,
+        "n_clips_ulcer": 10,
+        "n_clips_non_ulcer": 12,
+        "n_frames": 668,
+        "n_frames_ulcer": 211,
+        "n_frames_non_ulcer": 457,
+        "pct_of_total": 14.86095661846496,
+        "ulcer_size_clips": {
+          "<5mm": 5,
+          "5-20mm": 4,
+          ">20mm": 0,
+          "unknown": 1
+        },
+        "ulcer_size_clips_pct": {
+          "<5mm": 50.0,
+          "5-20mm": 40.0,
+          ">20mm": 0.0,
+          "unknown": 10.0
+        }
+      }
+    },
+    "ulcer_size": {
+      "<5mm": 18,
+      "5-20mm": 23,
+      ">20mm": 9,
+      "unknown": 8
+    },
+    "stratification_audit": {
+      "method": "ulcer_ratio",
+      "strata_counts": {
+        "low_ulcer": 13,
+        "high_ulcer": 8,
+        "no_ulcer": 4
+      },
+      "rare_strata_patients": []
+    }
+  },
+  "image_stats": {},
+  "manifest_quality": {
+    "rows": 4495,
+    "missing_values_per_column": {
+      "image_path": 0,
+      "video_id": 0,
+      "patient_id": 0,
+      "class_name": 0,
+      "label": 0,
+      "segment_id": 0,
+      "segment_number": 0,
+      "frame_number": 0,
+      "clip_key": 0,
+      "relative_path": 0,
+      "ulcer_size": 3304,
+      "split": 0
+    },
+    "duplicate_relative_path": 0,
+    "duplicate_clip_frame": 0,
+    "expected_columns_present": {
+      "relative_path": true,
+      "label": true,
+      "video_id": true,
+      "patient_id": true,
+      "segment_id": true,
+      "frame_number": true,
+      "clip_key": true,
+      "split": true
+    }
+  },
+  "split_diagnostics": {
+    "split_counts": {
+      "train": 2762,
+      "val": 1065,
+      "test": 668
+    },
+    "label_by_split": {
+      "test": {
+        "0": 0.6841317365269461,
+        "1": 0.3158682634730539
+      },
+      "train": {
+        "0": 0.6741491672700941,
+        "1": 0.3258508327299059
+      },
+      "val": {
+        "0": 0.7220657276995305,
+        "1": 0.27793427230046946
+      }
+    },
+    "patient_leakage": {
+      "test_vs_train": {
+        "count": 0,
+        "examples": []
+      },
+      "test_vs_val": {
+        "count": 0,
+        "examples": []
+      },
+      "train_vs_val": {
+        "count": 0,
+        "examples": []
+      }
+    },
+    "label_shift_vs_global": {
+      "test": 0.0029,
+      "train": 0.0128,
+      "val": 0.0351
+    }
+  },
+  "entities": {
+    "videos": 25,
+    "patients": 25,
+    "segments": 16,
+    "clips": 146,
+    "frames_per_video_top15": {
+      "vid_03_5586": 333,
+      "vid_03_2940": 319,
+      "vid_03_3117": 307,
+      "vid_03_1239": 263,
+      "vid_03_1448": 248,
+      "vid_03_7093": 241,
+      "vid_03_1857": 228,
+      "vid_03_5717": 202,
+      "vid_03_3376": 196,
+      "vid_03_1666": 189,
+      "vid_03_2354": 181,
+      "vid_03_2095": 175,
+      "vid_03_3515": 174,
+      "vid_03_2599": 161,
+      "vid_03_4906": 161
+    },
+    "frames_per_split": {
+      "train": 2762,
+      "val": 1065,
+      "test": 668
+    }
+  }
+}

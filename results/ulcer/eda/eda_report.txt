@@ -1,0 +1,70 @@
+============================================================================
+             ULCER DETECTION - EXPLORATORY DATA ANALYSIS REPORT             
+============================================================================
+
+1. DATASET OVERVIEW
+-------------------
+                                              Total   Ulcer+   Ulcer-
+  ----------------------------------------------------------------
+  Patients                                       25       21        4
+  Clips                                         146       58       88
+  Frames                                      4,495    1,407    3,088
+
+  Frames/clip  mean 30.8 +/- 13.3   [min 1 - max 51 | median 30]
+  Duration (s) mean 3.1 +/- 1.3   [min 0.1 - max 5.1 | median 3.0]   (@ 10.0 FPS)
+
+2. ULCER SIZE -- OVERALL (ulcer clips)
+--------------------------------------
+  Category                Clips        %
+  --------------------------------------
+  <5mm                       18    31.0%
+  5-20mm                     23    39.7%
+  >20mm                       9    15.5%
+  unknown                     8    13.8%
+
+3. SPLIT STATISTICS
+-------------------
+                                         train         val        test
+  --------------------------------------------------------------------
+  Patients                                  16           4           5
+  Clips (total)                             92          32          22
+    Ulcer clips                             37          11          10
+    NonUlcer clips                          55          21          12
+  Frames (total)                         2,762       1,065         668
+    Ulcer frames                           900         296         211
+    NonUlcer frames                      1,862         769         457
+  % of total frames                      61.4%       23.7%       14.9%
+
+  Class split distribution               train         val        test
+  --------------------------------------------------------------------
+    Ulcer clips                          63.8%       19.0%       17.2%
+    NonUlcer clips                       62.5%       23.9%       13.6%
+    Ulcer frames                         64.0%       21.0%       15.0%
+    NonUlcer frames                      60.3%       24.9%       14.8%
+
+4. ULCER SIZE BALANCE ACROSS SPLITS (ulcer clips)
+-------------------------------------------------
+                               train (n / %)           val (n / %)          test (n / %)
+  --------------------------------------------------------------------------------------
+  <5mm                   11 (29.7%)         2 (18.2%)         5 (50.0%)
+  5-20mm                 16 (43.2%)         3 (27.3%)         4 (40.0%)
+  >20mm                   3 ( 8.1%)         6 (54.5%)         0 ( 0.0%)
+  unknown                 7 (18.9%)         0 ( 0.0%)         1 (10.0%)
+
+  Note: val merges with train during cross-validation.
+
+5. DATA LEAKAGE CHECK (patient-level)
+-------------------------------------
+  [OK] No patient overlap between any splits.
+
+6. STRATIFICATION AUDIT
+-----------------------
+  Method : ulcer_ratio
+  [OK] No rare strata — all patients split via stratified sampling.
+
+  Strata (ulcer_presence x dominant_ulcer_size):
+    high_ulcer                               8 patient(s)
+    low_ulcer                               13 patient(s)
+    no_ulcer                                 4 patient(s)
+
+============================================================================
