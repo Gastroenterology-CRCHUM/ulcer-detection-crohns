@@ -248,6 +248,104 @@ and place in `data/assets/pretrained/`:
 - `freeze_layers`: `0` = full fine-tuning (default), `-1` = frozen backbone, `N` = freeze first N encoder blocks
 - `num_classes`: `1` = sigmoid output with per-epoch threshold tuning (default), `2` = softmax
 
+## Fine-tuning GastroNet-5M for a New Task
+
+This section describes how to adapt GastroNet-5M pretrained weights for your own endoscopy classification task.
+
+### 1. Download GastroNet weights
+
+Download the DINOv1-pretrained weights from [GastroNet-5M](https://cortex.thetavision.nl/dataset-provider/listing/2/) and place them in `data/assets/pretrained/`:
+
+```bash
+mkdir -p data/assets/pretrained
+# Place downloaded .pth files here:
+#   - RN50_GastroNet-5M_DINOv1.pth   (ResNet-50)
+#   - VITS_GastroNet-5M_DINOv1.pth   (ViT-Small/16)
+```
+
+### 2. Prepare your dataset
+
+Organize images into class folders and create a manifest CSV:
+
+```
+data/your_task/processed/
+├── ClassA/
+│   └── patient_001/
+│       └── segment_1/
+│           ├── frame_0000.jpg
+│           └── frame_0001.jpg
+└── ClassB/
+    └── patient_002/
+        └── segment_1/
+            └── frame_0000.jpg
+```
+
+Create `data/your_task/splits/dataset_manifest.csv`:
+
+```csv
+relative_path,video_id,patient_id,class_name,label,segment_id,clip_key,split
+ClassA/patient_001/segment_1/frame_0000.jpg,patient_001,patient_001,ClassA,0,segment_1,patient_001__segment_1,train
+ClassB/patient_002/segment_1/frame_0000.jpg,patient_002,patient_002,ClassB,1,segment_1,patient_002__segment_1,train
+```
+
+Required columns: `relative_path`, `label`, `video_id`, `patient_id`, `segment_id`, `clip_key`, `split`
+
+### 3. Create a config file
+
+Create `configs/your_task.yaml`:
+
+```yaml
+model:
+  model: vits16_gastronet    # or resnet50_gastronet
+  num_classes: 1             # 1 for binary, N for N-class
+  freeze_layers: 0           # 0=full fine-tune, -1=freeze backbone
+  dropout_rate: 0.5
+
+training:
+  batch_size: 64
+  epochs: 100
+  learning_rate: 1.0e-6      # use low LR for pretrained models
+  optimizer: AdamW
+  weight_decay: 1.0e-2
+  es_patience: 10
+  equalize: true             # CLAHE contrast enhancement
+```
+
+### 4. Train
+
+```bash
+# Single train/val/test split
+python -m scripts.ulcer.train \
+    --config configs/your_task.yaml \
+    --data-dir data/your_task/processed \
+    --manifest data/your_task/splits/dataset_manifest.csv \
+    --mode split
+
+# 5-fold cross-validation
+python -m scripts.ulcer.train \
+    --config configs/your_task.yaml \
+    --data-dir data/your_task/processed \
+    --manifest data/your_task/splits/dataset_manifest.csv \
+    --mode cv \
+    --n-splits 5
+```
+
+### 5. Evaluate
+
+Checkpoints are saved to `output/ulcer/models/detection/{model}/{timestamp}/best.pt`.
+Metrics are logged to MLflow:
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+### Tips
+
+- **Learning rate**: GastroNet models benefit from lower learning rates (1e-6) compared to ImageNet-pretrained models (1e-4)
+- **Freezing**: For small datasets (<1000 images), try `freeze_layers: -1` to freeze the backbone
+- **Class imbalance**: The pipeline auto-computes class weights from training data
+- **Clip-level aggregation**: Set `aggregate_by_clip: true` in config to aggregate frame predictions per video segment
+
 ## MLflow Tracking
 
 ```bash

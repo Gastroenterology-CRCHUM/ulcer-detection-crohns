@@ -53,9 +53,6 @@ import torch
 from torchvision import models
 from torchvision.models import (
     EfficientNet_B0_Weights,
-    EfficientNet_B1_Weights,
-    EfficientNet_B4_Weights,
-    ResNet18_Weights,
     ResNet50_Weights,
     ViT_B_16_Weights,
 )
@@ -146,12 +143,8 @@ class ModelConfig:
 # Paths are relative to cfg.paths.gastronet_weights_dir (default: data/assets/pretrained/)
 
 GASTRONET_WEIGHTS = {
-    "resnet50":    Path("RN50_GastroNet-5M_DINOv1.pth"),
-    "resnet50_1M": Path("RN50_GastroNet-1M_DINOv1.pth"),
-    "resnet50_5M": Path("RN50_GastroNet-5M_DINOv1.pth"),
-    "resnet50_200K": Path("RN50_GastroNet-200K_DINOv1.pth"),
-    "vits16":      Path("VITS_GastroNet-5M_DINOv1.pth"),
-    "vitb16":      Path("VITB16_GastroNet-5M_DINOv1.pth"),
+    "resnet50": Path("RN50_GastroNet-5M_DINOv1.pth"),
+    "vits16":   Path("VITS_GastroNet-5M_DINOv1.pth"),
 }
 
 _DINO_HUB = "facebookresearch/dino:main"  # torch.hub source for all DINOv1 models
@@ -270,72 +263,6 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         pretrain_method="Self-sup. (DINOv1)",
     ),
 
-    # ════════════════════════════════════════════════════════════════
-    # Additional / non-paper models (available but not reported)
-    # ════════════════════════════════════════════════════════════════
-
-    "resnet18": ModelRegistryEntry(
-        builder=models.resnet18,
-        weights=ResNet18_Weights.DEFAULT,
-        classifier="fc",
-        description="ResNet-18 — ImageNet / Supervised",
-        architecture="ResNet-18",
-        pretrain_data="ImageNet",
-        pretrain_method="Supervised",
-    ),
-    "resnet50_1M": ModelRegistryEntry(
-        builder=torch.hub.load,
-        weights=_DINO_HUB,
-        hub_model="dino_resnet50",
-        classifier="fc",
-        gastronet=GASTRONET_WEIGHTS["resnet50_1M"],
-        description="ResNet-50 — GastroNet-1M / DINOv1",
-        architecture="ResNet-50",
-        pretrain_data="GastroNet-1M",
-        pretrain_method="Self-sup. (DINOv1)",
-    ),
-    "resnet50_5M": ModelRegistryEntry(
-        builder=torch.hub.load,
-        weights=_DINO_HUB,
-        hub_model="dino_resnet50",
-        classifier="fc",
-        gastronet=GASTRONET_WEIGHTS["resnet50_5M"],
-        description="ResNet-50 — GastroNet-5M / DINOv1",
-        architecture="ResNet-50",
-        pretrain_data="GastroNet-5M",
-        pretrain_method="Self-sup. (DINOv1)",
-    ),
-    "resnet50_200K": ModelRegistryEntry(
-        builder=torch.hub.load,
-        weights=_DINO_HUB,
-        hub_model="dino_resnet50",
-        classifier="fc",
-        gastronet=GASTRONET_WEIGHTS["resnet50_200K"],
-        description="ResNet-50 — GastroNet-200K / DINOv1",
-        architecture="ResNet-50",
-        pretrain_data="GastroNet-200K",
-        pretrain_method="Self-sup. (DINOv1)",
-    ),
-    "efficientnetb1": ModelRegistryEntry(
-        builder=models.efficientnet_b1,
-        weights=EfficientNet_B1_Weights.DEFAULT,
-        classifier="classifier",
-        img_size=240,
-        description="EfficientNet-B1 — ImageNet / Supervised",
-        architecture="EfficientNet-B1",
-        pretrain_data="ImageNet",
-        pretrain_method="Supervised",
-    ),
-    "efficientnetb4": ModelRegistryEntry(
-        builder=models.efficientnet_b4,
-        weights=EfficientNet_B4_Weights.DEFAULT,
-        classifier="classifier",
-        img_size=380,
-        description="EfficientNet-B4 — ImageNet / Supervised",
-        architecture="EfficientNet-B4",
-        pretrain_data="ImageNet",
-        pretrain_method="Supervised",
-    ),
 }
 
 

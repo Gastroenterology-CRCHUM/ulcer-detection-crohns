@@ -3,7 +3,7 @@
 from .loader import Config, legacy_dict_to_config, load_config, load_model_config
 from .mlflow_config import MLFlowConfig
 from .models import MODEL_REGISTRY, ModelConfig, get_img_size, get_model_entry
-from .paths import InformativePaths, MesPaths, PathConfig, UlcerPaths
+from .paths import InformativePaths, PathConfig, UlcerPaths
 from .training import CVConfig, EvaluationConfig, TrainingConfig
 from .validation import validate_config
 
@@ -13,7 +13,6 @@ __all__ = [
     "CVConfig",
     "EvaluationConfig",
     "PathConfig",
-    "MesPaths",
     "UlcerPaths",
     "InformativePaths",
     "MLFlowConfig",

@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Model checkpoints (large files)
+output/
+*.pt
+*.pth
+*.ckpt
+
+# Data (user must provide)
+data/ulcer/raw/
+data/ulcer/processed/
+data/ulcer/filtrated/
+data/assets/pretrained/*.pth
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Claude Code
+.claude/
