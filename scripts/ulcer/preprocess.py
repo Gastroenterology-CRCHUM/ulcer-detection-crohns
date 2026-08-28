@@ -25,6 +25,7 @@ from scripts.noninformative.filter_frames import main as filter_main
 from scripts.ulcer.create_manifest import main as create_manifest_main
 from scripts.ulcer.eda import main as eda_main
 from src.config.paths import UlcerPaths, get_default_paths
+from src.data.splits import STRAT_MODES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -71,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--strat-mode",
-        choices=["size", "presence", "size_and_presence", "ulcer_ratio"],
+        choices=STRAT_MODES,
         default="ulcer_ratio",
         help="Patient stratification strategy for manifest creation (default: ulcer_ratio).",
     )
@@ -147,8 +148,6 @@ def main(args: argparse.Namespace) -> None:
         argparse.Namespace(
             input_dir=str(ulcer.filtrated),
             splits_dir=str(ulcer.splits),
-            timestamps_file=timestamps,
-            timestamps_sheet=args.timestamps_sheet,
             train_ratio=args.train_ratio,
             val_ratio=args.val_ratio,
             test_ratio=args.test_ratio,

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ulcers-detection"
 version = "0.1.0"
-description = "Deep-learning pipeline for gastrointestinal ulcer detection and size classification"
+description = "Deep-learning pipeline for gastrointestinal ulcer detection"
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }

@@ -2,7 +2,7 @@
 
 Combines frame-flow analysis (raw → processed → filtrated) with a full
 dataset EDA covering class distribution, clip analysis, split quality,
-ulcer-size balance, and optionally per-image statistics.
+and optionally per-image statistics.
 
 Input : data/ulcer/raw/, data/ulcer/processed/, data/ulcer/filtrated/
         data/ulcer/splits/dataset_manifest.csv
@@ -16,7 +16,6 @@ Output: results/ulcer/eda/
         ├── split_clips.png
         ├── split_frames.png
         ├── split_class_balance.png
-        ├── ulcer_size_distribution.png
         ├── top_videos_frame_count.png
         ├── sample_images.png
         ├── image_statistics.png         (optional --image-stats)
@@ -42,14 +41,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import seaborn as sns
 from PIL import Image
 from tqdm import tqdm
 
 from src.config.paths import get_default_paths
-from src.data.constants import SIZE_LABELS, SIZE_ORDER
 from src.data.eda_utils import (
     count_images,
     entity_summaries,
@@ -151,8 +148,6 @@ class DatasetEDA:
             "n_frames": ("label", "count"),
             "split": ("split", "first"),
         }
-        if "ulcer_size" in df.columns:
-            agg_dict["ulcer_size"] = ("ulcer_size", "first")
 
         clip_df = df.groupby("clip_key").agg(**agg_dict).reset_index()
         self._clip_df = clip_df
@@ -208,36 +203,8 @@ class DatasetEDA:
                     "n_frames_non_ulcer": int((s_df["label"] == 0).sum()),
                     "pct_of_total": len(s_df) / len(df) * 100,
                 }
-                if "ulcer_size" in s_clips.columns:
-                    ulcer_clips = s_clips[s_clips["label"] == 1]
-                    size_series = (
-                        ulcer_clips["ulcer_size"]
-                        .map(
-                            lambda x: (
-                                SIZE_LABELS.get(int(x), "unknown") if pd.notna(x) else "unknown"
-                            )
-                        )
-                        .value_counts()
-                        .reindex(SIZE_ORDER, fill_value=0)
-                    )
-                    entry["ulcer_size_clips"] = size_series.to_dict()
-                    n_u = entry["n_clips_ulcer"]
-                    entry["ulcer_size_clips_pct"] = {
-                        k: (v / n_u * 100 if n_u else 0)
-                        for k, v in entry["ulcer_size_clips"].items()
-                    }
                 split_stats[split] = entry
             stats["per_split"] = split_stats
-
-        if "ulcer_size" in df.columns:
-            ulcer_clips = clip_df[clip_df["label"] == 1]
-            size_counts = (
-                ulcer_clips["ulcer_size"]
-                .map(lambda x: SIZE_LABELS.get(int(x), "unknown") if pd.notna(x) else "unknown")
-                .value_counts()
-                .reindex(SIZE_ORDER, fill_value=0)
-            )
-            stats["ulcer_size"] = {k: int(v) for k, v in size_counts.items()}
 
         if self.split_info and "stratification" in self.split_info:
             stats["stratification_audit"] = self.split_info["stratification"]
@@ -498,87 +465,6 @@ class DatasetEDA:
         plt.savefig(self.output_dir / "split_class_balance.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
-    def plot_ulcer_size_distribution(self) -> None:
-        if "ulcer_size" not in self.df.columns:
-            return
-
-        present_splits = [s for s in SPLITS if s in self.df["split"].values]
-        ulcer_clips = self._clip_df[self._clip_df["label"] == 1].copy()
-        ulcer_clips["size_label"] = ulcer_clips["ulcer_size"].map(
-            lambda x: SIZE_LABELS.get(int(x), "unknown") if pd.notna(x) else "unknown"
-        )
-
-        size_colors = {
-            "<5mm": "#f39c12",
-            "5-20mm": "#e74c3c",
-            ">20mm": "#8e44ad",
-            "unknown": "#95a5a6",
-        }
-        fig, axes = plt.subplots(1, 3, figsize=(20, 5))
-
-        ax = axes[0]
-        counts = ulcer_clips["size_label"].value_counts().reindex(SIZE_ORDER, fill_value=0)
-        total = counts.sum()
-        bars = ax.bar(
-            counts.index,
-            counts.values,
-            color=[size_colors[s] for s in counts.index],
-            edgecolor="black",
-            alpha=0.85,
-        )
-        for bar, n in zip(bars, counts.values):
-            pct = n / total * 100 if total else 0
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.3,
-                f"{n}\n({pct:.1f}%)",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-            )
-        ax.set_title("Ulcer size — overall (clips)")
-        ax.set_ylabel("Clips")
-
-        ax = axes[1]
-        size_per_split = (
-            ulcer_clips.groupby(["split", "size_label"])
-            .size()
-            .unstack(fill_value=0)
-            .reindex(present_splits)
-            .reindex(SIZE_ORDER, axis=1, fill_value=0)
-        )
-        size_per_split.plot(
-            kind="bar",
-            ax=ax,
-            color=[size_colors[s] for s in SIZE_ORDER],
-            edgecolor="black",
-            alpha=0.85,
-        )
-        ax.set_title("Ulcer size per split (absolute)")
-        ax.set_ylabel("Clips")
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
-        ax.legend(title="Size", bbox_to_anchor=(1.01, 1), loc="upper left")
-
-        ax = axes[2]
-        size_pct = size_per_split.div(size_per_split.sum(axis=1).replace(0, np.nan), axis=0) * 100
-        size_pct.plot(
-            kind="bar",
-            stacked=True,
-            ax=ax,
-            color=[size_colors[s] for s in SIZE_ORDER],
-            edgecolor="black",
-            alpha=0.85,
-        )
-        ax.set_title("Ulcer size per split (% of ulcer clips)")
-        ax.set_ylabel("%")
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
-        ax.legend(title="Size", bbox_to_anchor=(1.01, 1), loc="upper left")
-
-        plt.suptitle("Ulcer size distribution across splits", fontsize=13, fontweight="bold")
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "ulcer_size_distribution.png", dpi=150, bbox_inches="tight")
-        plt.close(fig)
-
     def plot_image_statistics(self) -> None:
         if self.image_stats is None or self.image_stats.empty:
             return
@@ -647,12 +533,6 @@ class DatasetEDA:
                 try:
                     ax.imshow(Image.open(rec["image_path"]))
                     title = f"{class_name}\n{rec['patient_id']} / {rec['segment_id']}"
-                    if (
-                        class_name == "Ulcer"
-                        and "ulcer_size" in rec
-                        and pd.notna(rec["ulcer_size"])
-                    ):
-                        title += f"\n{SIZE_LABELS.get(int(rec['ulcer_size']), '?')}"
                     ax.set_title(title, fontsize=8)
                 except Exception as exc:
                     ax.text(0.5, 0.5, str(exc), ha="center", va="center", fontsize=7)
@@ -706,18 +586,8 @@ class DatasetEDA:
             f"   (@ {fpc['fps']} FPS)"
         )
 
-        if "ulcer_size" in stats:
-            h2("2. ULCER SIZE -- OVERALL (ulcer clips)")
-            n_u = c["ulcer_positive"]
-            lines.append(f"  {'Category':<20} {'Clips':>8} {'%':>8}")
-            lines.append("  " + "-" * 38)
-            for cat in SIZE_ORDER:
-                n = stats["ulcer_size"].get(cat, 0)
-                pct = n / n_u * 100 if n_u else 0
-                lines.append(f"  {cat:<20} {n:>8} {pct:>7.1f}%")
-
         if "per_split" in stats:
-            h2("3. SPLIT STATISTICS")
+            h2("2. SPLIT STATISTICS")
             present = {k: v for k, v in stats["per_split"].items() if v}
             col_w = 12
             header = f"  {'':32}" + "".join(f"{s:>{col_w}}" for s in SPLITS)
@@ -758,25 +628,10 @@ class DatasetEDA:
                     n = present.get(s, {}).get(class_key, 0)
                     vals.append(f"{n / class_total * 100:.1f}%" if class_total else "-")
                 lines.append(f"  {label:<32}" + "".join(f"{v:>{col_w}}" for v in vals))
-
-        if "per_split" in stats and any(
-            "ulcer_size_clips" in v for v in stats["per_split"].values()
-        ):
-            h2("4. ULCER SIZE BALANCE ACROSS SPLITS (ulcer clips)")
-            lines.append(f"  {'':20}" + "".join(f"{'  ' + s + ' (n / %)':>22}" for s in SPLITS))
-            lines.append("  " + "-" * (20 + 22 * len(SPLITS)))
-            for cat in SIZE_ORDER:
-                row_parts = []
-                for split in SPLITS:
-                    sp = stats["per_split"].get(split, {})
-                    n = sp.get("ulcer_size_clips", {}).get(cat, 0)
-                    pct = sp.get("ulcer_size_clips_pct", {}).get(cat, 0.0)
-                    row_parts.append(f"{n:>5} ({pct:>4.1f}%)")
-                lines.append(f"  {cat:<20}" + "     ".join(row_parts))
             lines.append("")
             lines.append("  Note: val merges with train during cross-validation.")
 
-        h2("5. DATA LEAKAGE CHECK (patient-level)")
+        h2("3. DATA LEAKAGE CHECK (patient-level)")
         if "split" in self.df.columns:
             split_patients = {s: set(self.df[self.df["split"] == s]["patient_id"]) for s in SPLITS}
             ok = True
@@ -791,7 +646,7 @@ class DatasetEDA:
             lines.append("  No split column found.")
 
         if "stratification_audit" in stats:
-            h2("6. STRATIFICATION AUDIT")
+            h2("4. STRATIFICATION AUDIT")
             audit = stats["stratification_audit"]
             lines.append(f"  Method : {audit.get('method', 'N/A')}")
             rare = audit.get("rare_strata_patients", [])
@@ -801,13 +656,13 @@ class DatasetEDA:
                 lines.append("  Priority order applied: train > test > val")
             else:
                 lines.append("  [OK] No rare strata — all patients split via stratified sampling.")
-            lines.append("\n  Strata (ulcer_presence x dominant_ulcer_size):")
+            lines.append("\n  Strata:")
             for stratum, count in sorted(audit.get("strata_counts", {}).items()):
                 flag = "  [rare]" if count < 3 else ""
                 lines.append(f"    {stratum:<38} {count:>3} patient(s){flag}")
 
         if img_stats:
-            h2("7. IMAGE STATISTICS")
+            h2("5. IMAGE STATISTICS")
             dims = img_stats.get("dimensions", {})
             for ax_name in ("width", "height"):
                 d = dims.get(ax_name, {})
@@ -848,7 +703,6 @@ class DatasetEDA:
         self.plot_class_distribution()
         self.plot_clip_distribution()
         self.plot_split_analysis()
-        self.plot_ulcer_size_distribution()
         if img_stats:
             self.plot_image_statistics()
         self.plot_sample_images()

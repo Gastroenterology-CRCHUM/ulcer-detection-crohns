@@ -203,18 +203,6 @@ def log_dataset_info(manifest_path: Path) -> None:
     mlflow.log_param("data_total_frames", len(df))
 
 
-def log_size_distribution(manifest_path: Path, label_col: str) -> None:
-    """Log the ulcer size distribution as MLflow parameters."""
-    df = pd.read_csv(manifest_path)
-    if label_col not in df.columns:
-        return
-
-    size_counts = df[label_col].value_counts().sort_index()
-    for size, count in size_counts.items():
-        mlflow.log_param(f"size_{size}_count", int(count))
-    mlflow.log_param("size_total", int(size_counts.sum()))
-
-
 # ---------------------------------------------------------------------------
 # Model Registry
 # ---------------------------------------------------------------------------

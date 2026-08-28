@@ -1,4 +1,4 @@
-"""Generic RF informative-frame filter — shared by ulcer and MES pipelines.
+"""Generic RF informative-frame filter — reusable for any frame dataset.
 
 Scans input_dir recursively, classifies frames with the informative RF model,
 and copies informative frames to output_dir preserving relative path structure.
@@ -8,10 +8,6 @@ Usage
     python scripts/noninformative/filter_frames.py \\
         --input-dir data/ulcer/processed \\
         --output-dir data/ulcer/filtrated
-
-    python scripts/noninformative/filter_frames.py \\
-        --input-dir data/mes/processed \\
-        --output-dir data/mes/filtrated
 """
 
 from __future__ import annotations
@@ -36,7 +32,7 @@ DEFAULT_EPSILON = 0.0
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Filter frames with informative RF model (ulcer and MES pipelines)."
+        description="Filter frames with informative RF model."
     )
     parser.add_argument(
         "--input-dir", type=str, required=True, help="Directory of processed frames."

@@ -11,7 +11,6 @@ import pytest
 from src.data.splits import (
     assign_cv_folds,
     assign_val_split,
-    dominant_ulcer_size,
     patient_strat_label,
     patient_strat_labels,
 )
@@ -60,30 +59,6 @@ class TestPatientStratLabel:
         assert labels[3] == labels[4]
 
 
-class TestDominantUlcerSize:
-    """Test dominant_ulcer_size function."""
-
-    def test_no_size_returns_none(self):
-        df = pd.DataFrame(
-            {
-                "patient_id": ["p001", "p001"],
-                "label": [0, 0],
-                "ulcer_size": [np.nan, np.nan],
-            }
-        )
-        assert dominant_ulcer_size("p001", df) == "none"
-
-    def test_mode_size(self):
-        df = pd.DataFrame(
-            {
-                "patient_id": ["p001", "p001", "p001", "p001"],
-                "label": [1, 1, 1, 0],
-                "ulcer_size": [0, 1, 1, 1],
-            }
-        )
-        assert dominant_ulcer_size("p001", df) == "1"
-
-
 class TestAssignValSplit:
     """Test assign_val_split function."""
 
@@ -113,7 +88,7 @@ class TestAssignValSplit:
             {
                 "patient_id": ["p001", "p002", "p003"],
                 "label": [0, 1, 0],
-                "ulcer_size": [np.nan, 1, np.nan],
+                "extra_col": [np.nan, 1, np.nan],
             }
         )
         train_df, val_df = assign_val_split(df, val_ratio=0.33, random_seed=42)

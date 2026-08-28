@@ -59,7 +59,6 @@ class TestBuildStratBin:
             {
                 "patient_id": ["p001", "p001", "p002", "p002"],
                 "label": [1, 1, 0, 0],
-                "ulcer_size": [1, 1, None, None],
             }
         )
 
@@ -69,22 +68,6 @@ class TestBuildStratBin:
         assert result == "ulcer"
         result_neg = build_strat_bin("p002", df, mode="presence")
         assert result_neg == "no_ulcer"
-
-    def test_size_mode_with_size_column(self):
-        df = self._df()
-        result = build_strat_bin("p001", df, mode="size")
-        assert result == "1"
-
-    def test_size_mode_no_ulcer_patient_returns_none(self):
-        # p002 has no ulcer frames; dominant_ulcer_size returns "none"
-        df = self._df()
-        result = build_strat_bin("p002", df, mode="size")
-        assert result == "none"
-
-    def test_size_and_presence_mode(self):
-        df = self._df()
-        result = build_strat_bin("p001", df, mode="size_and_presence")
-        assert "ulcer" in result and "1" in result
 
     def test_ulcer_ratio_mode(self):
         df = self._df()

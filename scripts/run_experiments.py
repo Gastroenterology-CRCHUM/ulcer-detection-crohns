@@ -150,7 +150,6 @@ def _build_pipeline(
         is_multiclass=False,
         pipeline_tag="ulcer",
         class_names=None,
-        use_size_distribution=False,
         comparison_file_suffix="",
         comparison_metrics=["test__f1_mean", "test__auroc_mean", "test_clip_f1"],
         extra_params={"pipeline": "ulcer"},

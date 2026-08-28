@@ -18,6 +18,7 @@ from src.config import (
     ModelConfig,
     PathConfig,
     TrainingConfig,
+    UlcerPaths,
     legacy_dict_to_config,
     load_config,
 )
@@ -180,32 +181,34 @@ class TestEvaluationConfig:
 class TestPathConfig:
     """Test PathConfig dataclass."""
 
-    def test_valid_path_config(self):
-        """Test creating a valid PathConfig."""
+    def test_valid_path_config(self, tmp_path):
+        """Test creating a PathConfig with a custom ulcer root and output_dir."""
+        (tmp_path / "custom_data" / "ulcer" / "splits").mkdir(parents=True)
         config = PathConfig(
-            ulcer_processed_dir=Path("data/ulcer/processed"),
+            ulcer=UlcerPaths(root=Path("custom_data/ulcer")),
             output_dir=Path("output"),
-            ulcer_splits_dir=Path("data/ulcer/splits"),
         )
         assert config.output_dir == Path("output")
-        assert config.ulcer_splits_dir == Path("data/ulcer/splits")
+        assert config.ulcer_splits_dir == Path("custom_data/ulcer/splits")
+        assert config.ulcer_processed_dir == Path("custom_data/ulcer/processed")
 
-    def test_path_validation(self):
-        """Test that paths are validated."""
-        # This should work with new naming convention
-        config = PathConfig(ulcer_processed_dir=Path("data"))
-        assert config.ulcer_processed_dir == Path("data")
+    def test_path_validation(self, tmp_path):
+        """Test that PathConfig rejects a root whose splits dir doesn't exist."""
+        with pytest.raises(ConfigurationError):
+            PathConfig(ulcer=UlcerPaths(root=Path("nonexistent_root")))
+
+        (tmp_path / "valid_data" / "ulcer" / "splits").mkdir(parents=True)
+        config = PathConfig(ulcer=UlcerPaths(root=Path("valid_data/ulcer")))
+        assert config.ulcer_splits_dir == Path("valid_data/ulcer/splits")
 
     def test_task_output_mapping(self):
         """Test task-dependent output directory mapping."""
-        config = PathConfig(ulcer_processed_dir=Path("data"))
+        config = PathConfig()
 
         det_cfg = config.get_task_output_config("ulcer_detection")
-        size_cfg = config.get_task_output_config("ulcer_size")
         inf_cfg = config.get_task_output_config("informative")
 
         assert det_cfg["models_dir"] == config.ulcer_detection_models_dir
-        assert size_cfg["models_dir"] == config.ulcer_size_models_dir
         assert inf_cfg["models_dir"] == config.informative_models_dir
 
     def test_get_ulcer_config(self):
@@ -215,23 +218,11 @@ class TestPathConfig:
         assert "processed_dir" in result
         assert "splits_dir" in result
 
-    def test_get_ulcer_size_config(self):
-        config = PathConfig()
-        result = config.get_ulcer_size_config()
-        assert "splits_dir" in result
-        assert result["splits_dir"] == config.ulcer_splits_size_dir
-
     def test_get_informative_config(self):
         config = PathConfig()
         result = config.get_informative_config()
         assert "raw_dir" in result
         assert "splits_dir" in result
-
-    def test_get_mes_config(self):
-        config = PathConfig()
-        result = config.get_mes_config()
-        assert "splits_dir" in result
-        assert "filtrated_dir" in result
 
     def test_get_ulcer_output_config(self):
         config = PathConfig()
@@ -243,12 +234,6 @@ class TestPathConfig:
         config = PathConfig()
         result = config.get_informative_output_config()
         assert "models_dir" in result
-
-    def test_get_mes_output_config(self):
-        config = PathConfig()
-        result = config.get_mes_output_config()
-        assert "models_dir" in result
-        assert "eda_dir" in result
 
     def test_ensure_output_dirs(self, tmp_path):
         """ensure_output_dirs creates all output directories."""
@@ -357,10 +342,10 @@ class TestLegacyCompatibility:
 
     def test_legacy_dict_with_defaults(self):
         """Test legacy dict conversion with missing values uses defaults."""
-        legacy_config = {"model": "resnet18"}
+        legacy_config = {"model": "resnet50_imagenet_sup"}
 
         config = legacy_dict_to_config(legacy_config)
-        assert config.model.model == "resnet18"
+        assert config.model.model == "resnet50_imagenet_sup"
         assert config.training.batch_size == 64  # default
         assert config.training.epochs == 100  # default
 

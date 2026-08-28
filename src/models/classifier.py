@@ -144,7 +144,7 @@ class ClassifierModel(nn.Module):
         lr_factor: float = 0.2,
         weight_decay: float = 0.01,
         label_smoothing: float = 0.0,
-        label_col: str = "label",  # ← "ulcer_size" for Pipeline C
+        label_col: str = "label",
         head_type: str = "linear",  # "linear" | "mlp1" | "mlp2"
         random_seed: int = 42,
         warmup_epochs: int = 5,
@@ -366,7 +366,7 @@ class ClassifierModel(nn.Module):
     def _setup_class_weights(
         self,
         manifest_path_or_df: Path | pd.DataFrame,
-        label_col: str = "label",  # ← "ulcer_size" for Pipeline C
+        label_col: str = "label",
     ) -> list[float]:
         """Compute per-class weights from training data.
 

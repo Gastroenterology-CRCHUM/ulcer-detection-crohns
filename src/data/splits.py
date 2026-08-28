@@ -2,7 +2,6 @@
 
 Shared between:
   - scripts/ulcer/create_manifest.py  — ulcer train/val/test splits (STRAT_MODES, build_strat_bin)
-  - src/data/mes.py                   — MES inference splits
   - src/data/dataloader.py            — CV folds and val carve-outs at training time
 """
 
@@ -52,16 +51,7 @@ def patient_label_array(
 # ---------------------------------------------------------------------------
 
 
-STRAT_MODES = ("size", "presence", "size_and_presence", "ulcer_ratio")
-
-
-def dominant_ulcer_size(patient_id: str, df: pd.DataFrame) -> str:
-    """Return the most frequent ulcer size category for a patient, or 'none'."""
-    rows = df[(df["patient_id"] == patient_id) & (df["label"] == 1) & df["ulcer_size"].notna()]
-    if rows.empty:
-        return "none"
-    mode_val = rows["ulcer_size"].mode()
-    return str(int(mode_val.iloc[0])) if not mode_val.empty else "none"
+STRAT_MODES = ("presence", "ulcer_ratio")
 
 
 def ulcer_presence_bin(patient_id: str, df: pd.DataFrame) -> str:
@@ -86,24 +76,13 @@ def patient_strat_labels(df: pd.DataFrame) -> np.ndarray:
 def build_strat_bin(patient_id: str, df: pd.DataFrame, mode: str) -> str:
     """Return a stratification bin string for the given mode.
 
-    mode='size'              → dominant size only   ('none', '0', '1', '2')
-    mode='presence'          → binary presence      ('no_ulcer', 'ulcer')
-    mode='size_and_presence' → presence × size      ('ulcer__1', 'no_ulcer__none', …)
+    mode='presence'    → binary presence      ('no_ulcer', 'ulcer')
+    mode='ulcer_ratio'  → coarse ulcer ratio    ('no_ulcer', 'low_ulcer', 'high_ulcer')
     """
     if mode == "ulcer_ratio":
         return patient_strat_label(patient_id, df)
-    if mode == "size":
-        has_size = "ulcer_size" in df.columns and df["ulcer_size"].notna().any()
-        return (
-            dominant_ulcer_size(patient_id, df) if has_size else ulcer_presence_bin(patient_id, df)
-        )
     if mode == "presence":
         return ulcer_presence_bin(patient_id, df)
-    if mode == "size_and_presence":
-        has_size = "ulcer_size" in df.columns and df["ulcer_size"].notna().any()
-        presence = ulcer_presence_bin(patient_id, df)
-        size = dominant_ulcer_size(patient_id, df) if has_size else "none"
-        return f"{presence}__{size}"
     raise ValueError(f"Unknown strat_mode: {mode!r}. Choose from {STRAT_MODES}.")
 
 
@@ -312,11 +291,11 @@ def assign_train_val_test_split(
     """Split a frame-level dataset by patient, stratified on the modal patient label.
 
     Keeps all frames of a patient in the same split. Works for binary and
-    multiclass labels (ulcer 0/1, MES Mayo 0-3). Rare strata (count <
-    rare_threshold) are assigned manually; otherwise stratified split is used.
+    multiclass labels. Rare strata (count < rare_threshold) are assigned
+    manually; otherwise stratified split is used.
 
     *strat_fn* maps (patient_id, df) → bin string; overrides modal label when
-    richer stratification is needed (e.g. ulcer size × presence).
+    richer stratification is needed.
 
     Returns (df_with_split_column, split_info_dict).
     """

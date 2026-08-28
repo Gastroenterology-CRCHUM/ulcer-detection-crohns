@@ -10,11 +10,7 @@ Usage
 -----
     python scripts/data/preprocess_frames.py \\
         --raw-dir data/ulcer/raw \\
-        --output-dir data/ulcer/processed
-
-    python scripts/data/preprocess_frames.py \\
-        --raw-dir data/mes/raw \\
-        --output-dir data/mes/processed \\
+        --output-dir data/ulcer/processed \\
         --incremental
 """
 

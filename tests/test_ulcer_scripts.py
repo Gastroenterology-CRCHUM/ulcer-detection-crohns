@@ -11,7 +11,6 @@ from scripts.ulcer.create_manifest import (
     _extract_frame_number,
     _parse_segment_number,
     build_parser,
-    load_ulcer_size_lookup,
 )
 from scripts.ulcer.eda import DatasetEDA
 
@@ -60,16 +59,6 @@ def test_extract_frame_number_bad_input():
 
 
 # ---------------------------------------------------------------------------
-# load_ulcer_size_lookup
-# ---------------------------------------------------------------------------
-
-
-def test_load_ulcer_size_lookup_missing_file(tmp_path):
-    result = load_ulcer_size_lookup(str(tmp_path / "missing.xlsx"), "Sheet1")
-    assert result == {}
-
-
-# ---------------------------------------------------------------------------
 # DatasetPreparer.scan_directory
 # ---------------------------------------------------------------------------
 
@@ -85,7 +74,7 @@ def _build_dir_tree(root: Path, n_ulcer_frames=3, n_nonulcer_frames=2) -> None:
 def test_scan_directory(tmp_path):
     _build_dir_tree(tmp_path)
     preparer = DatasetPreparer()
-    df = preparer.scan_directory(tmp_path, size_lookup={})
+    df = preparer.scan_directory(tmp_path)
     assert len(df) == 5
     assert set(df["class_name"].unique()) == {"Ulcer", "NonUlcer"}
     assert set(df["video_id"].unique()) == {"vid_01"}
@@ -98,7 +87,7 @@ def test_scan_directory_missing_class(tmp_path, caplog):
     (tmp_path / "Ulcer" / "vid_01" / "ulcer_1").mkdir(parents=True)
     (tmp_path / "Ulcer" / "vid_01" / "ulcer_1" / "frame_000.jpg").write_bytes(b"x")
     preparer = DatasetPreparer()
-    df = preparer.scan_directory(tmp_path, size_lookup={})
+    df = preparer.scan_directory(tmp_path)
     assert len(df) == 1
     assert (df["label"] == 1).all()
 
@@ -125,7 +114,6 @@ def _make_df_for_splits(n_patients=6) -> pd.DataFrame:
                 "image_path": f"data/{pid}/seg_1/frame_000.jpg",
                 "relative_path": f"{pid}/seg_1/frame_000.jpg",
                 "clip_key": f"{pid}__seg_1",
-                "ulcer_size": None,
             }
         )
     return pd.DataFrame(rows)
@@ -168,7 +156,6 @@ def _fake_paths() -> SimpleNamespace:
     return SimpleNamespace(
         ulcer_filtrated_dir=Path("data/ulcer/filtrated"),
         ulcer_splits_dir=Path("data/ulcer/splits"),
-        ulcer_raw_dir=Path("data/ulcer/raw"),
     )
 
 
@@ -220,7 +207,6 @@ def test_dataset_eda_load_and_compute(tmp_path):
                 "frame_number": 0,
                 "clip_key": f"{pid}__seg_1",
                 "relative_path": f"{pid}/seg_1/f.jpg",
-                "ulcer_size": None,
                 "split": ["train", "train", "val", "test"][i],
             }
         )

@@ -1,9 +1,9 @@
 """Generic split/CV training runners shared by all pipeline scripts.
 
-Each pipeline (ulcer detection, ulcer size, MES) is described by a
-``PipelineDef`` dataclass.  ``run_split_mode`` and ``run_cv_mode`` accept
-one of these definitions and delegate all pipeline-specific behaviour to
-the fields it carries, keeping the individual script files to ~50 lines.
+Each pipeline is described by a ``PipelineDef`` dataclass.
+``run_split_mode`` and ``run_cv_mode`` accept one of these definitions and
+delegate all pipeline-specific behaviour to the fields it carries, keeping
+the individual script files to ~50 lines.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ from src.evaluation.mlflow_utils import (
     log_dataset_info,
     log_figures,
     log_figures_from_dir,
-    log_size_distribution,
     log_split_metrics,
     promote_model,
     register_best_model,
@@ -85,7 +84,6 @@ class PipelineDef:
     class_names        : Mapping class_id -> display name (required when is_multiclass).
     comparison_metrics : Metrics forwarded to the run-comparison Markdown table.
     comparison_file_suffix : Suffix appended to the comparison file name.
-    use_size_distribution  : Call log_size_distribution instead of log_dataset_info.
     extra_tags         : Extra MLflow tags merged into run tags.
     extra_params       : Extra MLflow params merged into run params.
     """
@@ -106,7 +104,6 @@ class PipelineDef:
         default_factory=lambda: ["test__f1_mean", "test__auroc_mean"]
     )
     comparison_file_suffix: str = ""
-    use_size_distribution: bool = False
     extra_tags: dict = field(default_factory=dict)
     extra_params: dict = field(default_factory=dict)
 
@@ -163,11 +160,8 @@ def _log_pytorch_model(model: ClassifierModel, name_suffix: str) -> None:
         print(f"  [warn] MLflow model log skipped: {exc}")
 
 
-def _log_manifest_info(manifest_path: Path, pipeline: PipelineDef) -> None:
-    if pipeline.use_size_distribution:
-        log_size_distribution(manifest_path, label_col=pipeline.label_col)
-    else:
-        log_dataset_info(manifest_path)
+def _log_manifest_info(manifest_path: Path) -> None:
+    log_dataset_info(manifest_path)
 
 
 def _tune_threshold(model: ClassifierModel, best_probs, labels, val_loader, device) -> None:
@@ -528,7 +522,7 @@ def run_split_mode(
                 **pipeline.extra_tags,
             },
         )
-        _log_manifest_info(manifest_path, pipeline)
+        _log_manifest_info(manifest_path)
         mlflow.log_params(
             {
                 **config_to_dict(cfg),
@@ -635,7 +629,7 @@ def run_cv_mode(
                 **pipeline.extra_tags,
             },
         )
-        _log_manifest_info(manifest_path, pipeline)
+        _log_manifest_info(manifest_path)
         mlflow.log_params(
             {
                 **config_to_dict(cfg),

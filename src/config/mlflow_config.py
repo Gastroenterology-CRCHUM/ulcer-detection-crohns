@@ -12,12 +12,6 @@ class MLFlowConfig:
     experiment_name: str = "ulcer_detection"
     """Experiment name for main ulcer detection task."""
 
-    experiment_name_size: str = "ulcer_size_detection"
-    """Experiment name for ulcer size classification (Pipeline C)."""
-
-    experiment_name_mes: str = "mes_multiclass"
-    """Experiment name for MES multiclass classification (Pipeline E)."""
-
     log_model: bool = True
     """Log trained model artifacts to MLflow."""
 

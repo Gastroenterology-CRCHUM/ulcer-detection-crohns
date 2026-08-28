@@ -26,7 +26,7 @@ def _project_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 # ---------------------------------------------------------------------------
 
 
-def _make_checkpoint(tmp_path: Path, arch: str = "resnet18") -> Path:
+def _make_checkpoint(tmp_path: Path, arch: str = "vits16_gastronet") -> Path:
     """Instantiate a ClassifierModel, save its base_model state_dict, return path."""
     wrapper = ClassifierModel(
         base_model=arch,
@@ -48,14 +48,14 @@ class TestLoadModel:
     def test_returns_classifier_model(self, tmp_path):
         ckpt_path = _make_checkpoint(tmp_path)
         entry = {"path": str(ckpt_path), "freeze_backbone": 0, "head_type": "linear"}
-        model = load_model("resnet18-allBackbone", entry, project_root=tmp_path)
+        model = load_model("vits16_gastronet", entry, project_root=tmp_path)
         assert isinstance(model, ClassifierModel)
 
     def test_model_in_eval_mode(self, tmp_path):
         """load_model does not set eval mode — verify training state is default."""
         ckpt_path = _make_checkpoint(tmp_path)
         entry = {"path": str(ckpt_path), "freeze_backbone": 0, "head_type": "linear"}
-        model = load_model("resnet18-allBackbone", entry, project_root=tmp_path)
+        model = load_model("vits16_gastronet", entry, project_root=tmp_path)
         # ClassifierModel is an nn.Module; training mode is True by default at construction
         assert isinstance(model, torch.nn.Module)
 
@@ -64,20 +64,20 @@ class TestLoadModel:
         ckpt_dir = tmp_path / "checkpoints"
         ckpt_dir.mkdir()
         wrapper = ClassifierModel(
-            base_model="resnet18", num_classes=1, optimizer="AdamW", learning_rate=5e-5
+            base_model="vits16_gastronet", num_classes=1, optimizer="AdamW", learning_rate=5e-5
         )
         torch.save(wrapper.base_model.state_dict(), ckpt_dir / "best.pt")
 
         entry = {"path": str(ckpt_dir), "freeze_backbone": 0, "head_type": "linear"}
-        model = load_model("resnet18-allBackbone", entry, project_root=tmp_path)
+        model = load_model("vits16_gastronet", entry, project_root=tmp_path)
         assert isinstance(model, ClassifierModel)
 
     def test_arch_inferred_from_raw_name(self, tmp_path):
         """Architecture is taken as the first dash-separated token of raw_name."""
         ckpt_path = _make_checkpoint(tmp_path)
         entry = {"path": str(ckpt_path), "freeze_backbone": 0, "head_type": "linear"}
-        # raw_name prefix "resnet18" matches the checkpoint we built
-        model = load_model("resnet18-frozenBackbone", entry, project_root=tmp_path)
+        # raw_name prefix "vits16_gastronet" matches the checkpoint we built
+        model = load_model("vits16_gastronet-frozenBackbone", entry, project_root=tmp_path)
         assert isinstance(model, ClassifierModel)
 
     def test_missing_keys_does_not_raise(self, tmp_path):
@@ -86,7 +86,7 @@ class TestLoadModel:
         # Save an empty state_dict — all keys will be missing
         torch.save({}, ckpt_path)
         entry = {"path": str(ckpt_path), "freeze_backbone": 0, "head_type": "linear"}
-        model = load_model("resnet18-allBackbone", entry, project_root=tmp_path)
+        model = load_model("vits16_gastronet", entry, project_root=tmp_path)
         assert isinstance(model, ClassifierModel)
 
 
@@ -100,21 +100,21 @@ class TestLoadBestModels:
         """After load_best_models each entry has a 'model' key."""
         ckpt_path = _make_checkpoint(tmp_path)
         best_models = {
-            "resnet18-allBackbone": {
+            "vits16_gastronet": {
                 "path": str(ckpt_path),
                 "freeze_backbone": 0,
                 "head_type": "linear",
             }
         }
         load_best_models(best_models, project_root=tmp_path)
-        assert "model" in best_models["resnet18-allBackbone"]
-        assert isinstance(best_models["resnet18-allBackbone"]["model"], ClassifierModel)
+        assert "model" in best_models["vits16_gastronet"]
+        assert isinstance(best_models["vits16_gastronet"]["model"], ClassifierModel)
 
     def test_mutates_dict_in_place(self, tmp_path):
         """load_best_models mutates the dict rather than returning a new one."""
         ckpt_path = _make_checkpoint(tmp_path)
         best_models = {
-            "resnet18-allBackbone": {
+            "vits16_gastronet": {
                 "path": str(ckpt_path),
                 "freeze_backbone": 0,
                 "head_type": "linear",
@@ -130,13 +130,13 @@ class TestLoadBestModels:
         ckpt2 = tmp_path / "best2.pt"
         # Reuse same weights for simplicity
         wrapper = ClassifierModel(
-            base_model="resnet18", num_classes=1, optimizer="AdamW", learning_rate=5e-5
+            base_model="vits16_gastronet", num_classes=1, optimizer="AdamW", learning_rate=5e-5
         )
         torch.save(wrapper.base_model.state_dict(), ckpt2)
 
         best_models = {
-            "resnet18-a": {"path": str(ckpt1), "freeze_backbone": 0, "head_type": "linear"},
-            "resnet18-b": {"path": str(ckpt2), "freeze_backbone": 0, "head_type": "linear"},
+            "vits16_gastronet-a": {"path": str(ckpt1), "freeze_backbone": 0, "head_type": "linear"},
+            "vits16_gastronet-b": {"path": str(ckpt2), "freeze_backbone": 0, "head_type": "linear"},
         }
         load_best_models(best_models, project_root=tmp_path)
         assert all("model" in entry for entry in best_models.values())

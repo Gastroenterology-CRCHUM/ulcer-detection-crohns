@@ -28,13 +28,14 @@ class TestUlcerDataset:
         dataset = UlcerDataset(df, data_dir)
 
         for i in range(len(dataset)):
-            image, label, clip_id = dataset[i]
+            image, label, clip_id, id_frame = dataset[i]
             assert isinstance(image, Image.Image)
             assert image.mode == "RGB"
             assert isinstance(label, torch.Tensor)
             assert label.dtype == torch.long
             assert int(label) in (0, 1)
             assert isinstance(clip_id, str)
+            assert id_frame == df.loc[i, "relative_path"]
 
     def test_getitem_missing_image(self, sample_dataset):
         """Test handling of missing image files."""
@@ -119,10 +120,10 @@ class TestUlcerDataset:
         data_dir, df = sample_dataset
 
         # Add a custom label column
-        df["ulcer_size"] = [0, 1, 2]
+        df["custom_label"] = [0, 1, 2]
 
-        dataset = UlcerDataset(df, data_dir, label_col="ulcer_size")
-        image, label, clip_id = dataset[0]
+        dataset = UlcerDataset(df, data_dir, label_col="custom_label")
+        image, label, clip_id, id_frame = dataset[0]
         assert isinstance(label, torch.Tensor)
         assert int(label) == 0
 
@@ -136,7 +137,7 @@ class TestUlcerDataset:
             return img
 
         dataset = UlcerDataset(df, data_dir, transform=mock_transform)
-        image, label, clip_id = dataset[0]
+        image, label, clip_id, id_frame = dataset[0]
         assert isinstance(image, Image.Image)
 
 

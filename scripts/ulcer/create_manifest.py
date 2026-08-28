@@ -1,10 +1,8 @@
 """Stage 4 — Create ulcer train/val/test manifest from processed (or filtrated) frames.
 
-Scans input_dir, applies ulcer-size lookup from the annotations Excel file,
-and produces patient-level stratified splits.
+Scans input_dir and produces patient-level stratified splits.
 
 Input : data/ulcer/filtrated/{Ulcer,NonUlcer}/vid*/segment_*/*.jpg
-        data/ulcer/raw/Ulcer and Non-Ulcer Timestamps.xlsx
 Output: data/ulcer/splits/{dataset_manifest.csv, split_info.json,
                             train.csv, val.csv, test.csv}
 
@@ -28,7 +26,6 @@ import pandas as pd
 
 from src.config.paths import get_default_paths
 from src.config.preprocessing import SplitConfigBase
-from src.data.constants import SIZE_MAP
 from src.data.splits import STRAT_MODES, assign_train_val_test_split, build_strat_bin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -44,8 +41,6 @@ logger = logging.getLogger(__name__)
 class DatasetConfig(SplitConfigBase):
     input_dir: str = "data/ulcer/filtrated"
     splits_dir: str = "data/ulcer/splits"
-    timestamps_file: str = "data/ulcer/raw/Ulcer and Non-Ulcer Timestamps.xlsx"
-    timestamps_sheet: str = "Ulcer timestamps"
     image_extensions: tuple = (".jpg", ".jpeg", ".png", ".bmp")
     class_names: dict = field(default_factory=lambda: {"Ulcer": 1, "NonUlcer": 0})
     strat_mode: str = "ulcer_ratio"
@@ -68,42 +63,6 @@ class ImageRecord:
     frame_number: int
     clip_key: str
     relative_path: str
-    ulcer_size: int | None
-
-
-# ---------------------------------------------------------------------------
-# Ulcer size helpers
-# ---------------------------------------------------------------------------
-
-
-def load_ulcer_size_lookup(
-    timestamps_file: str, sheet_name: str
-) -> dict[tuple[str, int], int | None]:
-    path = Path(timestamps_file)
-    if not path.exists():
-        logger.warning("Timestamps file not found: %s. ulcer_size will be NaN.", path)
-        return {}
-    try:
-        df = pd.read_excel(path, sheet_name=sheet_name)
-    except Exception as exc:
-        logger.warning("Could not read sheet '%s' from %s: %s.", sheet_name, path, exc)
-        return {}
-    required_cols = {"record_id", "sample_number", "Size:"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        logger.warning("Missing columns %s in '%s'.", missing, sheet_name)
-        return {}
-    lookup: dict[tuple[str, int], int | None] = {}
-    for _, row in df.iterrows():
-        record_id = str(row["record_id"]).strip()
-        try:
-            sample_number = int(row["sample_number"])
-        except (ValueError, TypeError):
-            continue
-        raw_size = str(row["Size:"]).strip() if pd.notna(row["Size:"]) else ""
-        lookup[(record_id, sample_number)] = SIZE_MAP.get(raw_size, None)
-    logger.info("Loaded %d ulcer-size entries from '%s'.", len(lookup), sheet_name)
-    return lookup
 
 
 def _parse_segment_number(segment_id: str) -> int:
@@ -132,7 +91,7 @@ class DatasetPreparer:
         self.records: list[ImageRecord] = []
         self.patient_info: dict = {}
 
-    def scan_directory(self, input_dir: Path, size_lookup: dict) -> pd.DataFrame:
+    def scan_directory(self, input_dir: Path) -> pd.DataFrame:
         logger.info("Scanning directory: %s", input_dir)
         for class_name, label in self.config.class_names.items():
             class_dir = input_dir / class_name
@@ -159,7 +118,6 @@ class DatasetPreparer:
                     segment_id = segment_dir.name
                     segment_number = _parse_segment_number(segment_id)
                     self.patient_info[video_id]["segments"].append(segment_id)
-                    ulcer_size = size_lookup.get((video_id, segment_number)) if label == 1 else None
                     for img_path in sorted(segment_dir.iterdir()):
                         if img_path.suffix.lower() not in self.config.image_extensions:
                             continue
@@ -174,7 +132,6 @@ class DatasetPreparer:
                             frame_number=_extract_frame_number(img_path.name),
                             relative_path=str(img_path.relative_to(input_dir)),
                             clip_key=str(video_id + "__" + segment_id),
-                            ulcer_size=ulcer_size,
                         )
                         self.records.append(record)
                         self.patient_info[video_id]["total_frames"] += 1
@@ -286,12 +243,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory of (filtrated) processed frames.",
     )
     parser.add_argument("--splits-dir", type=str, default=str(paths.ulcer_splits_dir))
-    parser.add_argument(
-        "--timestamps-file",
-        type=str,
-        default=str(paths.ulcer_raw_dir / "Ulcer and Non-Ulcer Timestamps.xlsx"),
-    )
-    parser.add_argument("--timestamps-sheet", type=str, default="Ulcer timestamps")
     parser.add_argument("--train-ratio", type=float, default=0.70)
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--test-ratio", type=float, default=0.15)
@@ -303,9 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Patient stratification strategy: "
             "'ulcer_ratio' = no_ulcer / low_ulcer (<40%%) / high_ulcer (≥40%%) (default), "
-            "'presence' = binary ulcer/no_ulcer, "
-            "'size' = dominant ulcer size, "
-            "'size_and_presence' = presence × size."
+            "'presence' = binary ulcer/no_ulcer."
         ),
     )
     return parser
@@ -317,8 +266,6 @@ def main(args: argparse.Namespace) -> None:
     config = DatasetConfig(
         input_dir=str(input_dir),
         splits_dir=args.splits_dir,
-        timestamps_file=args.timestamps_file,
-        timestamps_sheet=args.timestamps_sheet,
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
@@ -326,9 +273,8 @@ def main(args: argparse.Namespace) -> None:
         strat_mode=args.strat_mode,
     )
 
-    size_lookup = load_ulcer_size_lookup(args.timestamps_file, args.timestamps_sheet)
     preparer = DatasetPreparer(config)
-    df = preparer.scan_directory(input_dir, size_lookup)
+    df = preparer.scan_directory(input_dir)
 
     if df.empty:
         raise RuntimeError(f"No images found in: {input_dir}")

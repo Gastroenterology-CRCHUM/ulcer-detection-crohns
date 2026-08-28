@@ -125,11 +125,11 @@ def load_ulcer_annotations(excel_path: Path) -> pd.DataFrame:
     """Load ulcer/non-ulcer timestamps from Excel → unified DataFrame.
 
     Expected sheets: "Ulcer timestamps", "Non-Ulcer timestamps".
-    Expected columns: record_id, start_time (HH:MM:SS), end_time, sample_number, Size:.
+    Expected columns: record_id, start_time (HH:MM:SS), end_time, sample_number.
 
     Returns
     -------
-    DataFrame with columns: record_id, start_s, end_s, sample_number, size, label
+    DataFrame with columns: record_id, start_s, end_s, sample_number, label
         label: 1 = ulcer, 0 = non-ulcer
     """
     dfs = []
@@ -138,7 +138,7 @@ def load_ulcer_annotations(excel_path: Path) -> pd.DataFrame:
             df = pd.read_excel(excel_path, sheet_name=sheet)
         except Exception as exc:
             raise ValueError(f"Cannot read sheet '{sheet}' from {excel_path}: {exc}") from exc
-        df = df.rename(columns={"start_time": "start_hms", "end_time": "end_hms", "Size:": "size"})
+        df = df.rename(columns={"start_time": "start_hms", "end_time": "end_hms"})
         df["label"] = label
         dfs.append(df)
 
@@ -150,8 +150,6 @@ def load_ulcer_annotations(excel_path: Path) -> pd.DataFrame:
     out["record_id"] = out["record_id"].astype(str).str.strip()
     out = out.sort_values(["record_id", "start_s"]).reset_index(drop=True)
     present = [
-        c
-        for c in ["record_id", "start_s", "end_s", "sample_number", "size", "label"]
-        if c in out.columns
+        c for c in ["record_id", "start_s", "end_s", "sample_number", "label"] if c in out.columns
     ]
     return out[present]

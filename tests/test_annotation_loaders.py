@@ -60,7 +60,6 @@ def _make_ulcer_excel(tmp_path: Path) -> Path:
                 "start_time": ["00:01:00", "00:03:00"],
                 "end_time": ["00:02:00", "00:04:00"],
                 "sample_number": [1, 2],
-                "Size:": ["small", "large"],
             }
         ).to_excel(writer, sheet_name="Ulcer timestamps", index=False)
         pd.DataFrame(
@@ -69,7 +68,6 @@ def _make_ulcer_excel(tmp_path: Path) -> Path:
                 "start_time": ["00:05:00"],
                 "end_time": ["00:06:00"],
                 "sample_number": [1],
-                "Size:": [None],
             }
         ).to_excel(writer, sheet_name="Non-Ulcer timestamps", index=False)
     return path

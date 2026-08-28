@@ -1,7 +1,6 @@
-"""Shared EDA utilities for ulcer and MES preprocessing pipelines.
+"""Shared EDA utilities for the ulcer preprocessing pipeline.
 
-Generic plotting and analysis functions used by both
-scripts/ulcer/eda.py.
+Generic plotting and analysis functions used by scripts/ulcer/eda.py.
 """
 
 from __future__ import annotations

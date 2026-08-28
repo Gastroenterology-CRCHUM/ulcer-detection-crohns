@@ -209,7 +209,6 @@ def _run_video_mode(args: argparse.Namespace) -> pd.DataFrame:
                         "label": label,
                         "record_id": record_id,
                         "sample_number": sample_num,
-                        "size": row.get("size"),
                     }
                 )
 

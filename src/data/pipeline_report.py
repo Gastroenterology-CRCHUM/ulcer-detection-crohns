@@ -155,9 +155,6 @@ def annotation_duration_ulcer(excel_path: Path) -> dict | None:
     return result
 
 
-# annotation_duration_mes removed — MES task not part of this project
-
-
 # ---------------------------------------------------------------------------
 # Report formatter
 # ---------------------------------------------------------------------------
@@ -175,7 +172,7 @@ def format_pipeline_report(
     Parameters
     ----------
     title         : Report title.
-    annotation_stats : Output of annotation_duration_ulcer/mes (or None).
+    annotation_stats : Output of annotation_duration_ulcer (or None).
     stages        : List of (stage_name, stats_dict) from collect_stage_stats.
     fps           : Extraction FPS used for duration computation.
     label_order   : Class names in preferred display order.
