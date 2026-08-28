@@ -95,6 +95,8 @@ def _auroc(labels, preds, probs):
         probs = probs / row_sums
         return float(roc_auc_score(labels, probs, multi_class="ovr", average="macro"))
 
+    if len(np.unique(labels)) < 2:
+        return float("nan")  # cannot compute an AUROC
     return float(roc_auc_score(labels, probs))
 
 
@@ -120,11 +122,8 @@ def _f1(labels, preds, probs):
 def _specificity(labels, preds, probs):
     if probs.ndim == 2:
         return float("nan")  # not defined in multiclass
-    cm = confusion_matrix(labels, preds)
-    if cm.shape == (2, 2):
-        tn, fp, _, _ = cm.ravel()
-        return float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
-    return 0.0
+    tn, fp, _, _ = confusion_matrix(labels, preds, labels=[0, 1]).ravel()
+    return float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
 
 
 METRIC_FNS: dict[str, Callable] = {

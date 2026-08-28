@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pandas as pd
 import pytest
@@ -81,3 +82,22 @@ def sample_threshold_results() -> list[dict]:
 def checkpoint_workspace(tmp_path) -> Path:
     """Return a temporary workspace root for checkpoint loading tests."""
     return tmp_path
+
+
+@pytest.fixture
+def mlflow_tmp_tracking(tmp_path) -> str:
+    """Isolate MLflow tracking to a per-test sqlite DB; restore global state after.
+
+    MLflow's file-store backend is in maintenance mode and rejects writes by
+    default (as of mlflow 3.x), so tests use a throwaway sqlite DB instead —
+    the same backend kind the project itself uses (see PathConfig.mlflow_db).
+    """
+    original_uri = mlflow.get_tracking_uri()
+    db_path = (tmp_path / "mlflow.db").as_posix()
+    mlflow.set_tracking_uri(f"sqlite:///{db_path}")
+    experiment_name = "test_experiment"
+    mlflow.set_experiment(experiment_name)
+    yield experiment_name
+    if mlflow.active_run() is not None:
+        mlflow.end_run()
+    mlflow.set_tracking_uri(original_uri)

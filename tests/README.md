@@ -2,7 +2,7 @@
 
 This directory contains unit tests for the Ulcer Detection project.
 
-Current status: the full test suite passes on this branch (see CI for up-to-date results).
+Current status: 381 tests, all passing.
 
 ## Running Tests
 
@@ -11,6 +11,10 @@ Current status: the full test suite passes on this branch (see CI for up-to-date
 ```bash
 pytest
 ```
+
+Default output groups by file — one filename line, then one dot per test in
+it (not a per-test listing). Use `-v`/`--verbose` for the full per-test
+listing, or `-q` for a plain progress bar with no filenames.
 
 ### Run specific test file
 
@@ -59,9 +63,11 @@ pytest --cov=src --cov-report=html
 - `test_evaluation_delong.py`: DeLong AUROC comparison test
 - `test_evaluation_runner.py`: `run_delong` orchestration
 - `test_evaluation_model_loader.py`: Checkpoint loading (`load_model`, `load_best_models`)
+- `test_evaluation_mlflow_utils.py`: Run tags, metric/artifact logging, model registry, run comparison
 
 **Models / training**
 - `test_training_trainer.py`: Checkpoint discovery and loading
+- `test_training_run_modes.py`: `PipelineDef`, pure-logic branch of `_compute_fold_metrics`, explainability fallback — see note below on what's *not* covered here
 - `test_noninformative_model.py`: Non-informative-frame RF classifier
 
 **Scripts**
@@ -72,6 +78,13 @@ pytest --cov=src --cov-report=html
 - `test_utils.py`, `test_utils_extended.py`: Logging, device management, path utilities, formatting helpers
 
 Shared fixtures live in `conftest.py`. Prefer using those over recreating local setup code when possible.
+Notably `mlflow_tmp_tracking`: points MLflow at a throwaway per-test sqlite DB
+(`tmp_path/mlflow.db`) and restores the global tracking URI afterward. Use it
+instead of mocking `mlflow.*` calls, the local sqlite backend is fully
+functional (tracking, artifacts, model registry), so tests exercise the real
+client and catch API-shape drift a mock would hide. MLflow's plain file-store
+backend is deprecated as of MLflow 3.x and rejects writes by default, hence
+sqlite rather than `file:///...`.
 
 ## Test Categories
 
@@ -123,19 +136,11 @@ def test_function_with_multiple_inputs(input, expected):
 
 ## Continuous Integration
 
-Tests are automatically run on:
-
-- Pull requests
-- Pushes to main branch
-- Manual triggers
-
-### CI Configuration
-
-See `.github/workflows/test.yml` for CI configuration.
+No CI is configured in this repository yet — `.github/workflows/` doesn't
+exist. Tests are run locally (`pytest`) before pushing. If CI gets set up
+later, update this section to point at the workflow file.
 
 ## Test Coverage
-
-Aim for >90% code coverage. Focus first on the critical data and evaluation layers; model-training coverage can be extended after that.
 
 Current coverage report available at `htmlcov/index.html` after running:
 

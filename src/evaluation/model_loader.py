@@ -75,7 +75,7 @@ def load_model(
         head_type=head_type,
     )
 
-    state_dict = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
     missing, unexpected = wrapper.base_model.load_state_dict(state_dict, strict=False)
     if missing:

@@ -446,13 +446,16 @@ def _compute_fold_metrics(
         precision, recall, f1, _ = precision_recall_fscore_support(
             best_labels, preds, average=average, zero_division=0
         )
-        try:
-            if pipeline.is_multiclass:
-                auroc = float(roc_auc_score(best_labels, best_probs, multi_class="ovr"))
-            else:
-                auroc = float(roc_auc_score(best_labels, best_probs))
-        except ValueError:
+        if len(np.unique(best_labels)) < 2:
             auroc = float("nan")
+        else:
+            try:
+                if pipeline.is_multiclass:
+                    auroc = float(roc_auc_score(best_labels, best_probs, multi_class="ovr"))
+                else:
+                    auroc = float(roc_auc_score(best_labels, best_probs))
+            except ValueError:
+                auroc = float("nan")
     else:
         criterion = model._create_criterion(
             model._setup_class_weights(manifest_path, label_col=pipeline.label_col), device

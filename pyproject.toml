@@ -53,7 +53,13 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "--tb=short",
-    "-q",
+    "--strict-markers",
+    "-p", "no:doctest",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
