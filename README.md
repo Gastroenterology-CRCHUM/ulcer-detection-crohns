@@ -23,7 +23,7 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 ├── scripts/
 │   ├── run_experiments.py                 Batch experiment orchestrator
 │   ├── data/                              Preprocessing utilities (ROI crop, frame extraction)
-│   ├── noninformative/                    Informative-frame RF classifier (train, filter, review)
+│   ├── noninformative/                    Informative-frame RF filter (loads pretrained rf_pipeline.pkl)
 │   └── ulcer/
 │       ├── extract_frames.py              Frame extraction from annotated videos
 │       ├── preprocess.py                  Full 4-stage preprocessing pipeline
@@ -109,14 +109,16 @@ python -m scripts.ulcer.preprocess --incremental        # skip already-processed
 python -m scripts.ulcer.preprocess --train-ratio 0.7 --val-ratio 0.15 --test-ratio 0.15
 ```
 
-### Informative-frame classifier (standalone)
+### Informative-frame classifier
 
-The RF classifier used in preprocessing can be retrained independently:
-
-```bash
-python -m scripts.noninformative.preprocess_inf        # build training manifest
-python -m scripts.noninformative.train_noninformative   # train RF classifier
-```
+This repo ships only the filtering side of the RF classifier — it loads the
+pretrained `data/assets/informative/rf_pipeline.pkl` (+ `features_cache.pkl`
+for the feature-extraction config) via `NonInformativeClassifier.load()` and
+applies it in `scripts/noninformative/filter_frames.py` and
+`scripts/ulcer/extract_frames.py`. `NonInformativeClassifier` (in
+`src/noninformative/model.py`) still exposes `.fit()` / `.evaluate()` for
+programmatic retraining, but there is no longer a dedicated training script —
+this repo focuses on the ulcer-detection pipeline.
 
 ## Running Experiments
 

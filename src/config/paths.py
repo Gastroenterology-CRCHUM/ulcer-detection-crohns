@@ -24,20 +24,9 @@ data/
 │       ├── split_info.json
 │       └── train.csv / val.csv / test.csv
 │
-├── informative/                   # Informative/Non-Informative frame classification pipeline
-│   ├── raw/                       # Source frames (1920×1080 JPEG)
-│   │   ├── Informative/
-│   │   └── Non-Informative/
-│   │       ├── Blur/
-│   │       ├── Low light/
-│   │       ├── Debris/
-│   │       └── ...
-│   ├── processed/                 # Cropped frames (1350×1080)
-│   └── splits/                    # Train/val/test manifests
-│
 └── assets/                        # Shared assets
     ├── pretrained/                # Pre-trained model weights (ResNet, ViT, DINO, etc.)
-    └── informative/               # Trained informative-filter artifacts
+    └── informative/               # Pretrained informative-filter artifacts (RF classifier)
         ├── rf_pipeline.pkl
         └── features_cache.pkl
 
@@ -45,15 +34,12 @@ output/
 ├── ulcer/
 │   └── models/
 │       └── detection/             # Checkpoints per model/timestamp
-├── informative/
-│   └── models/
 └── shared/
 
 results/
-├── ulcer/
-│   ├── cv/                        # CV result figures and tables
-│   └── eda/                       # EDA figures and reports
-└── informative/
+└── ulcer/
+    ├── cv/                        # CV result figures and tables
+    └── eda/                       # EDA figures and reports
 """
 
 from __future__ import annotations
@@ -95,28 +81,6 @@ class UlcerPaths:
         return self.root / "splits"
 
 
-@dataclass
-class InformativePaths:
-    """All data directories for the Informative/Non-Informative pipeline."""
-
-    root: Path = field(default_factory=lambda: Path("data/informative"))
-
-    def __post_init__(self) -> None:
-        self.root = Path(self.root)
-
-    @property
-    def raw(self) -> Path:
-        return self.root / "raw"
-
-    @property
-    def processed(self) -> Path:
-        return self.root / "processed"
-
-    @property
-    def splits(self) -> Path:
-        return self.root / "splits"
-
-
 # ============================================================================
 # Central config
 # ============================================================================
@@ -130,12 +94,10 @@ class PathConfig:
 
         cfg.paths.ulcer.splits      # data/ulcer/splits
         cfg.paths.ulcer.filtrated   # data/ulcer/filtrated
-        cfg.paths.informative.raw   # data/informative/raw
     """
 
     # ── Grouped data paths ────────────────────────────────────────────────────
-    ulcer:       UlcerPaths       = field(default_factory=UlcerPaths)
-    informative: InformativePaths = field(default_factory=InformativePaths)
+    ulcer: UlcerPaths = field(default_factory=UlcerPaths)
 
     # ── Convenience aliases ───────────────────────────────────────────────────
     @property
@@ -146,13 +108,6 @@ class PathConfig:
     def ulcer_filtrated_dir(self) -> Path:     return self.ulcer.filtrated
     @property
     def ulcer_splits_dir(self) -> Path:        return self.ulcer.splits
-
-    @property
-    def informative_raw_dir(self) -> Path:       return self.informative.raw
-    @property
-    def informative_processed_dir(self) -> Path: return self.informative.processed
-    @property
-    def informative_splits_dir(self) -> Path:    return self.informative.splits
 
     # ============================================================================
     # ASSETS
@@ -169,7 +124,6 @@ class PathConfig:
     # ============================================================================
     output_dir: Path = Path("output")
     output_ulcer_dir: Path = Path("output/ulcer")
-    output_informative_dir: Path = Path("output/informative")
     output_shared_dir: Path = Path("output/shared")
 
     ulcer_models_root_dir: Path = Path("output/ulcer/models")
@@ -181,7 +135,6 @@ class PathConfig:
     # ============================================================================
     results_root_dir: Path = Path("results")
     results_ulcer_dir: Path = Path("results/ulcer")
-    results_informative_dir: Path = Path("results/informative")
     results_eda_dir: Path = Path("results/ulcer/eda")
     results_cv_dir: Path = Path("results/ulcer/cv")
 
@@ -207,7 +160,6 @@ class PathConfig:
         output_paths = [
             self.output_dir,
             self.output_ulcer_dir,
-            self.output_informative_dir,
             self.output_shared_dir,
             self.ulcer_models_root_dir,
             self.ulcer_detection_models_dir,
@@ -215,7 +167,6 @@ class PathConfig:
             self.filtered_dir,
             self.results_root_dir,
             self.results_ulcer_dir,
-            self.results_informative_dir,
             self.results_eda_dir,
             self.results_cv_dir,
             self.ulcer_processed_dir,
@@ -231,14 +182,6 @@ class PathConfig:
             "splits_dir": self.ulcer_splits_dir,
         }
 
-    def get_informative_config(self) -> dict:
-        """Get path configuration for the informative frame classification pipeline."""
-        return {
-            "raw_dir": self.informative_raw_dir,
-            "processed_dir": self.informative_processed_dir,
-            "splits_dir": self.informative_splits_dir,
-        }
-
     def get_ulcer_output_config(self) -> dict:
         """Get output/result directories for ulcer workflows."""
         return {
@@ -250,34 +193,16 @@ class PathConfig:
             "cv_dir": self.results_cv_dir,
         }
 
-    def get_informative_output_config(self) -> dict:
-        """Get output/result directories for informative workflows."""
-        return {
-            "output_dir": self.output_informative_dir,
-            "models_dir": self.informative_models_dir,
-            "results_dir": self.results_informative_dir,
-        }
-
     def get_task_output_config(self, task: str) -> dict:
         """Return output/results paths for the requested task.
 
-        Supported tasks: ulcer_detection, informative, ulcer_filtering, eda
+        Supported tasks: ulcer_detection, eda
         """
         task_key = task.strip().lower()
         mapping = {
             "ulcer_detection": {
                 "output_dir": self.output_ulcer_dir,
                 "models_dir": self.ulcer_detection_models_dir,
-                "results_dir": self.results_ulcer_dir,
-            },
-            "informative": {
-                "output_dir": self.output_informative_dir,
-                "models_dir": self.informative_models_dir,
-                "results_dir": self.results_informative_dir,
-            },
-            "ulcer_filtering": {
-                "output_dir": self.filtered_dir,
-                "models_dir": self.informative_models_dir,
                 "results_dir": self.results_ulcer_dir,
             },
             "eda": {

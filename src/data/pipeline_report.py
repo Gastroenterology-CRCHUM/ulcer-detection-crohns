@@ -3,7 +3,7 @@
 Provides per-stage directory stats (frames, clips, class counts, clip duration)
 and annotation-window duration stats from Excel files.
 
-Used by scripts/ulcer/eda.py, scripts/noninformative/eda.py.
+Used by scripts/ulcer/eda.py.
 """
 
 from __future__ import annotations

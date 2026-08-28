@@ -95,7 +95,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # sys.path manipulation must precede src imports in CLI entry-points
 "scripts/run_experiments.py" = ["E402"]
-"scripts/noninformative/train_noninformative.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src", "scripts"]

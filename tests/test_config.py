@@ -206,10 +206,8 @@ class TestPathConfig:
         config = PathConfig()
 
         det_cfg = config.get_task_output_config("ulcer_detection")
-        inf_cfg = config.get_task_output_config("informative")
 
         assert det_cfg["models_dir"] == config.ulcer_detection_models_dir
-        assert inf_cfg["models_dir"] == config.informative_models_dir
 
     def test_get_ulcer_config(self):
         config = PathConfig()
@@ -218,22 +216,11 @@ class TestPathConfig:
         assert "processed_dir" in result
         assert "splits_dir" in result
 
-    def test_get_informative_config(self):
-        config = PathConfig()
-        result = config.get_informative_config()
-        assert "raw_dir" in result
-        assert "splits_dir" in result
-
     def test_get_ulcer_output_config(self):
         config = PathConfig()
         result = config.get_ulcer_output_config()
         assert "models_dir" in result
         assert "results_dir" in result
-
-    def test_get_informative_output_config(self):
-        config = PathConfig()
-        result = config.get_informative_output_config()
-        assert "models_dir" in result
 
     def test_ensure_output_dirs(self, tmp_path):
         """ensure_output_dirs creates all output directories."""
