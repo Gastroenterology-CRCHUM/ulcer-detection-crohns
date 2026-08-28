@@ -360,8 +360,8 @@ def main():
     )
     if len(test_df) != len(test_paths):
         raise RuntimeError(
-            f"{len(test_paths) - len(test_df)} frame(s) du cache absentes du manifest. "
-            "Lance avec --recompute."
+            f"{len(test_paths) - len(test_df)} frame(s) from cache missing from manifest. "
+            "Run with --recompute."
         )
     test_df["pred_label"] = results["predictions"]
     test_df["pred_prob"] = results["probabilities"].round(4)
