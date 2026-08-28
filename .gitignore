@@ -37,7 +37,7 @@ data/ulcer/raw/
 data/ulcer/processed/
 data/ulcer/filtrated/
 data/assets/pretrained/*.pth
-data/assets/pretrained/feature_cache.pkl
+data/assets/informative/features_cache.pkl
 
 # OS
 .DS_Store
