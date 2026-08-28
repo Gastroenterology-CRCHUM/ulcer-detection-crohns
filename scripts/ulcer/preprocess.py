@@ -87,6 +87,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip frames already present in processed-dir (stage 1 only).",
     )
+    parser.add_argument(
+        "--recompute",
+        action="store_true",
+        help="Force informative-filter feature re-extraction, ignoring "
+             "results/ulcer/filtering/features_cache.pkl (stage 2 only).",
+    )
     return parser
 
 
@@ -116,14 +122,13 @@ def main(args: argparse.Namespace) -> None:
         )
 
     model_path = Path(args.model)
-    cache_path = model_path.parent / "features_cache.pkl"
 
-    _missing = [str(p) for p in (model_path, cache_path) if not p.exists()]
-    if _missing:
+    if not model_path.exists():
         print(
-            "\n  [!] Skipping filtration — file(s) not found:\n"
-            + "\n".join(f"        {p}" for p in _missing)
-            + "\n  To enable filtration, run train_noninformative.py first."
+            f"\n  [!] Skipping filtration — file not found: {model_path}"
+            "\n  To enable filtration, place a pretrained rf_pipeline.pkl under "
+            "data/assets/informative/ (features_cache.pkl is optional — only "
+            "needed if the model's feature_names weren't saved)."
         )
     else:
         if ulcer.filtrated.exists():
@@ -136,12 +141,13 @@ def main(args: argparse.Namespace) -> None:
                     output_dir=str(ulcer.filtrated),
                     model=args.model,
                     epsilon=args.epsilon,
+                    recompute=args.recompute,
                 )
             )
         except Exception as exc:
             print(
-                f"\n  [!] Filtration failed (incompatible model/cache?): {exc}\n"
-                "  Skipping — retrain the filter or check features_cache.pkl."
+                f"\n  [!] Filtration failed (incompatible model/feature config?): {exc}\n"
+                "  Skipping — retrain the filter or check features_cache.pkl if present."
             )
 
     create_manifest_main(

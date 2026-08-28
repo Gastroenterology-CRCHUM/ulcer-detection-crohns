@@ -135,6 +135,25 @@ def get_feature_names(groups: list[str] | None = None) -> list[str]:
     return [name for g in ALL_GROUPS if g in active for name in FEATURE_GROUPS[g]]
 
 
+def infer_feature_config(feature_names: list[str]) -> tuple[list[str] | None, bool, bool]:
+    """
+    Reconstruct (groups, use_handcrafted, use_bottleneck) from a saved
+    ``feature_names`` list (e.g. ``NonInformativeClassifier.feature_names``),
+    for callers that only have ``rf_pipeline.pkl`` and not ``features_cache.pkl``.
+
+    Returns:
+        groups          : Hand-crafted groups found, or None if use_handcrafted is False.
+        use_handcrafted : Whether any hand-crafted (non-"bn_*") feature is present.
+        use_bottleneck  : Whether any "bn_*" (Inception bottleneck) feature is present.
+    """
+    names = set(feature_names)
+    use_bottleneck = any(n.startswith("bn_") for n in names)
+    hc_names = {n for n in names if not n.startswith("bn_")}
+    use_handcrafted = bool(hc_names)
+    groups = [g for g in ALL_GROUPS if set(FEATURE_GROUPS[g]) <= hc_names] if use_handcrafted else None
+    return groups, use_handcrafted, use_bottleneck
+
+
 # ---------------------------------------------------------------------------
 # Preprocessing helpers
 # ---------------------------------------------------------------------------
@@ -215,9 +234,16 @@ def _edge_features(hsv, reflection_mask, roi_mask) -> list[float]:
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(edges)
     for lbl in range(1, num_labels):
-        pts = np.argwhere(labels == lbl)
-        if len(pts) < 5:
+        x, y, w, h, area = stats[lbl]
+        if area < 5:
             continue
+        # Scan only this component's bounding box, not the full frame — with
+        # thousands of components on a textured real frame, an np.argwhere
+        # over the whole image per label turns this loop O(labels × pixels).
+        # Shift back to full-frame coordinates so fitEllipse's numerics
+        # (sensitive to point-coordinate magnitude) match the un-optimized version exactly.
+        sub_labels = labels[y : y + h, x : x + w]
+        pts = np.argwhere(sub_labels == lbl) + (y, x)
         try:
             (_, _), (ma, mi), _ = cv2.fitEllipse(pts[:, ::-1].astype(np.float32))
             ma, mi = max(ma, mi), min(ma, mi)
@@ -225,7 +251,7 @@ def _edge_features(hsv, reflection_mask, roi_mask) -> list[float]:
                 ratio = np.clip(mi / ma, 0.0, 1.0)
                 ecc = np.sqrt(1.0 - ratio**2)
                 if ecc < 0.9:
-                    edges[labels == lbl] = 0
+                    edges[y : y + h, x : x + w][sub_labels == lbl] = 0
         except cv2.error:
             pass
 
@@ -695,6 +721,7 @@ class BottleneckExtractor:
 def extract_all(
     images: list[np.ndarray] | list[str] | list[Path],
     groups: list[str] | None = None,
+    use_handcrafted: bool = True,
     use_bottleneck: bool = True,
     bottleneck_extractor: BottleneckExtractor | None = None,
     n_jobs: int = -1,
@@ -702,19 +729,32 @@ def extract_all(
     num_workers: int = 4,
     verbose: bool = True,
 ) -> np.ndarray:
-    """Extract and concatenate hand-crafted + bottleneck (2048) features."""
+    """Extract and concatenate hand-crafted + bottleneck (2048) features.
+
+    Set ``use_handcrafted=False`` to skip hand-crafted extraction entirely
+    (bottleneck-only) — useful on large datasets, since the hand-crafted
+    groups are comparatively slow to compute.
+    """
+    if not use_handcrafted and not use_bottleneck:
+        raise ValueError("At least one of use_handcrafted or use_bottleneck must be True.")
+
     is_paths = len(images) > 0 and isinstance(images[0], (str, Path))
-    hc = extract_handcrafted_batch(
-        images,
-        groups=groups,
-        verbose=verbose,
-        n_jobs=n_jobs,
-        from_paths=is_paths,
-    )
-    if not use_bottleneck:
-        return hc
-    extractor = bottleneck_extractor or BottleneckExtractor()
-    bn = extractor.extract_batch(
-        images, batch_size=batch_size, num_workers=num_workers, verbose=verbose
-    )
-    return np.hstack([hc, bn])
+    parts = []
+    if use_handcrafted:
+        parts.append(
+            extract_handcrafted_batch(
+                images,
+                groups=groups,
+                verbose=verbose,
+                n_jobs=n_jobs,
+                from_paths=is_paths,
+            )
+        )
+    if use_bottleneck:
+        extractor = bottleneck_extractor or BottleneckExtractor()
+        parts.append(
+            extractor.extract_batch(
+                images, batch_size=batch_size, num_workers=num_workers, verbose=verbose
+            )
+        )
+    return parts[0] if len(parts) == 1 else np.hstack(parts)

@@ -39,7 +39,8 @@ output/
 results/
 └── ulcer/
     ├── cv/                        # CV result figures and tables
-    └── eda/                       # EDA figures and reports
+    ├── eda/                       # EDA figures and reports
+    └── filtering/                 # Cached informative-filter feature matrix
 """
 
 from __future__ import annotations
@@ -137,6 +138,7 @@ class PathConfig:
     results_ulcer_dir: Path = Path("results/ulcer")
     results_eda_dir: Path = Path("results/ulcer/eda")
     results_cv_dir: Path = Path("results/ulcer/cv")
+    results_filtering_dir: Path = Path("results/ulcer/filtering")
 
     # ============================================================================
     # MLflow
@@ -169,6 +171,7 @@ class PathConfig:
             self.results_ulcer_dir,
             self.results_eda_dir,
             self.results_cv_dir,
+            self.results_filtering_dir,
             self.ulcer_processed_dir,
         ]
         for path in output_paths:

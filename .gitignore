@@ -32,12 +32,14 @@ output/
 *.pth
 *.ckpt
 
+# Results (locally generated)
+results/ulcer/filtering/
+
 # Data (user must provide)
 data/ulcer/raw/
 data/ulcer/processed/
 data/ulcer/filtrated/
 data/assets/pretrained/*.pth
-data/assets/informative/features_cache.pkl
 
 # OS
 .DS_Store

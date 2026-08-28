@@ -112,13 +112,106 @@ python -m scripts.ulcer.preprocess --train-ratio 0.7 --val-ratio 0.15 --test-rat
 ### Informative-frame classifier
 
 This repo ships only the filtering side of the RF classifier — it loads the
-pretrained `data/assets/informative/rf_pipeline.pkl` (+ `features_cache.pkl`
-for the feature-extraction config) via `NonInformativeClassifier.load()` and
-applies it in `scripts/noninformative/filter_frames.py` and
-`scripts/ulcer/extract_frames.py`. `NonInformativeClassifier` (in
-`src/noninformative/model.py`) still exposes `.fit()` / `.evaluate()` for
-programmatic retraining, but there is no longer a dedicated training script —
-this repo focuses on the ulcer-detection pipeline.
+pretrained `data/assets/informative/rf_pipeline.pkl` via
+`NonInformativeClassifier.load()` and applies it in
+`scripts/noninformative/filter_frames.py` and `scripts/ulcer/extract_frames.py`.
+`NonInformativeClassifier` (in `src/noninformative/model.py`) still exposes
+`.fit()` / `.evaluate()` for programmatic retraining, but there is no longer
+a dedicated training script — this repo focuses on the ulcer-detection
+pipeline.
+
+`rf_pipeline.pkl` alone is enough to run filtration — `features_cache.pkl`
+(the feature-extraction config: `groups` / `use_handcrafted` / `use_bottleneck`)
+is only a convenience cache and is git-ignored (too large to commit, since it
+also holds the full training feature matrices). If it's missing, both scripts
+fall back to `infer_feature_config()` (`src/noninformative/features.py`),
+which reconstructs the same config from the `feature_names` embedded in
+`rf_pipeline.pkl` itself — see "Inspecting an already-trained
+`rf_pipeline.pkl`" below. `features_cache.pkl` only matters for the
+training-time convenience it was originally built for (caching
+`X_train`/`X_val`/`X_test`) — not for filtration.
+
+**`filter_frames.py` also caches its own extracted features**, at
+`results/ulcer/filtering/features_cache.pkl` — a different file with the
+same name as the one above, don't confuse the two. It stores the feature
+matrix for whatever `--input-dir` was last filtered, keyed on a hash of each
+frame's path/size/mtime plus the `groups`/`use_handcrafted`/`use_bottleneck`
+config. Re-running filtration (e.g. re-running `preprocess.py`) reuses it
+as long as `data/ulcer/processed` hasn't changed, skipping extraction
+entirely; touch a frame or change the feature config and it re-extracts
+automatically. It's git-ignored (local, can grow large). Pass `--recompute`
+to force re-extraction.
+
+**If `data/assets/informative/rf_pipeline.pkl` isn't present** (e.g. a fresh
+clone without the pretrained assets), generate it from your own labelled
+Informative / Non-Informative frame manifest — e.g.
+`data/informative/splits/dataset_manifest.csv` with `image_path`, `label`,
+`split` columns (this raw dataset isn't bundled with the repo):
+
+```python
+import pickle
+import pandas as pd
+from src.config.paths import get_default_paths
+from src.noninformative.features import extract_all, get_feature_names
+from src.noninformative.model import NonInformativeClassifier
+
+GROUPS = ["glcm", "intensity"]   # default hand-crafted groups (see note below)
+USE_HANDCRAFTED = True           # False → bottleneck-only, for large datasets
+
+paths = get_default_paths()
+manifest = pd.read_csv("data/informative/splits/dataset_manifest.csv")
+
+def features_for(split):
+    df = manifest[manifest["split"] == split]
+    X = extract_all(df["image_path"].tolist(), groups=GROUPS, use_handcrafted=USE_HANDCRAFTED)
+    return X, df["label"].values
+
+X_train, y_train = features_for("train")
+X_val, y_val = features_for("val")
+X_test, y_test = features_for("test")
+
+feat_names = (get_feature_names(GROUPS) if USE_HANDCRAFTED else []) + [f"bn_{i}" for i in range(2048)]
+clf = NonInformativeClassifier().fit(X_train, y_train, feature_names=feat_names)
+clf.tune_threshold(X_val, y_val)
+clf.evaluate(X_test, y_test)
+clf.save(paths.informative_model_path)
+
+with open(paths.informative_features_cache, "wb") as f:
+    pickle.dump({"groups": GROUPS, "use_handcrafted": USE_HANDCRAFTED, "use_bottleneck": True}, f)
+```
+
+`filter_frames.py` and `extract_frames.py` both read `groups` /
+`use_handcrafted` / `use_bottleneck` back from `features_cache.pkl` when
+it's present, falling back to `infer_feature_config()` otherwise — keep the
+cache in sync whenever you retrain with different settings, so the inferred
+fallback doesn't have to guess.
+
+**Manually inspecting an `rf_pipeline.pkl`** — same idea as
+`infer_feature_config()`, as a standalone snippet:
+
+```python
+import pickle
+
+with open("data/assets/informative/rf_pipeline.pkl", "rb") as f:
+    state = pickle.load(f)
+
+names = state["feature_names"]  # None if the model was trained without passing feature_names
+if names:
+    bn_names = [n for n in names if n.startswith("bn_")]
+    print(f"{len(names)} total — bottleneck: {'yes (' + str(len(bn_names)) + ')' if bn_names else 'no'}, "
+          f"hand-crafted: {[n for n in names if not n.startswith('bn_')]}")
+else:
+    print(f"{state['rf'].n_features_in_} total features (no names saved)")
+```
+
+**Feature groups default to `glcm` + `intensity`** (24 features) — that's
+what the shipped `rf_pipeline.pkl` was trained on, and it adds relatively
+little overhead on top of the 2048 bottleneck features. The full
+hand-crafted extractor (`src/noninformative/features.py`, 6 groups / 43
+features) is per-frame CPU-bound OpenCV/scikit-image work that adds up fast
+at scale. **For large datasets, set `USE_HANDCRAFTED = False`** and rely on
+bottleneck features alone — skipping hand-crafted extraction entirely is the
+biggest speed lever for large runs.
 
 ## Running Experiments
 

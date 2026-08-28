@@ -30,7 +30,7 @@ from src.data.video_extraction import (
     collect_frames_from_dir,
     extract_frames_from_video,
 )
-from src.noninformative.features import BottleneckExtractor, extract_all
+from src.noninformative.features import BottleneckExtractor, extract_all, infer_feature_config
 from src.noninformative.model import NonInformativeClassifier
 
 logger = logging.getLogger(__name__)
@@ -57,13 +57,26 @@ def _make_informative_filter(
 
     model = NonInformativeClassifier.load(model_path)
 
-    groups = None
-    use_bottleneck = True
     if features_cache_path.exists():
         with open(features_cache_path, "rb") as fh:
             cache = pickle.load(fh)
         groups = cache.get("groups")
+        use_handcrafted = cache.get("use_handcrafted", True)
         use_bottleneck = cache.get("use_bottleneck", True)
+    elif model.feature_names:
+        groups, use_handcrafted, use_bottleneck = infer_feature_config(model.feature_names)
+        logger.info(
+            "%s not found — inferred feature config from rf_pipeline.pkl: "
+            "groups=%s, use_handcrafted=%s, use_bottleneck=%s",
+            features_cache_path, groups, use_handcrafted, use_bottleneck,
+        )
+    else:
+        groups, use_handcrafted, use_bottleneck = None, True, True
+        logger.warning(
+            "%s not found and rf_pipeline.pkl has no feature_names — assuming all "
+            "hand-crafted groups + bottleneck; this may not match the trained model.",
+            features_cache_path,
+        )
 
     extractor = BottleneckExtractor() if use_bottleneck else None
 
@@ -80,6 +93,7 @@ def _make_informative_filter(
             )
         X = extract_all(
             images_rgb,
+            use_handcrafted=use_handcrafted,
             use_bottleneck=use_bottleneck,
             bottleneck_extractor=extractor,
             groups=groups,

@@ -72,6 +72,11 @@ class NonInformativeClassifier:
         self.feature_importances: pd.Series | None = None
         self._feature_names: list[str] | None = None
 
+    @property
+    def feature_names(self) -> list[str] | None:
+        """Feature names passed to `.fit()`, or restored by `.load()` — None if never set."""
+        return self._feature_names
+
     # ------------------------------------------------------------------
     # Fitting
     # ------------------------------------------------------------------
