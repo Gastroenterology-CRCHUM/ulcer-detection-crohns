@@ -59,9 +59,14 @@ conda create -n ulcer-detection python=3.10
 conda activate ulcer-detection
 
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-pip install timm transformers scikit-learn pandas numpy opencv-python pillow openpyxl tqdm matplotlib scipy scikit-image
-pip install joblib mlflow pyyaml scikit-posthocs pytest pytest-cov
+pip install timm transformers scikit-learn pandas numpy opencv-python pillow openpyxl tqdm matplotlib seaborn scipy scikit-image
+pip install joblib mlflow pyyaml scikit-posthocs statsmodels pytesseract pytest pytest-cov
 ```
+
+`pytesseract` also requires the Tesseract-OCR engine itself (used by default for OCR-based overlay-offset detection in `extract_frames.py`; pass `--no-ocr-offset` to skip it):
+
+- **Windows**: install via the [UB-Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki) (auto-detected at `C:\Program Files\Tesseract-OCR\tesseract.exe`), or ensure `tesseract` is on `PATH`.
+- **Linux/macOS**: `sudo apt install tesseract-ocr` / `brew install tesseract`.
 
 Optional — `.mov` video support on Windows:
 

@@ -17,10 +17,12 @@ dependencies:
   - openpyxl
   - tqdm
   - matplotlib
+  - seaborn
   - scipy
   - joblib
   - mlflow
   - pyyaml
   - statsmodels
+  - pytesseract
   - pytest
   - pytest-cov
