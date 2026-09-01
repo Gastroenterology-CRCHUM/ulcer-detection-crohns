@@ -3,8 +3,8 @@
 For each annotated segment (record_id, start_s, end_s) read from --excel,
 samples frames from the matching video at --fps and, when a segment yields
 more than --max-frames frames, keeps only the --max-frames most visually
-diverse ones (GastroNet backbone embeddings, greedy farthest-point sampling)
-— the discarded frames are deleted, not just excluded from the manifest.
+diverse ones (GastroNet backbone embeddings, greedy farthest-point sampling),
+ the discarded frames are deleted, not just excluded from the manifest.
 
 Informative-frame filtering is NOT done here: the RF filter needs ROI-cropped
 frames to match its normal operating point, so it runs later in the pipeline,

@@ -7,6 +7,7 @@ cohort (when its manifest is present) and checks it for patient-level
 overlap against train/val/test.
 
 Input : data/ulcer/raw/, data/ulcer/processed/, data/ulcer/filtrated/
+        data/ulcer/raw/annotations.xlsx  (optional, for annotated clip-duration stats)
         data/ulcer/splits/dataset_manifest.csv
         data/ulcer/heldout/heldout_temporal_manifest.csv  (optional, not in public repo)
 Output: results/ulcer/eda/
@@ -47,6 +48,7 @@ from tqdm import tqdm
 
 from src.config.paths import get_default_paths
 from src.data.eda_utils import (
+    annotation_duration_ulcer,
     build_patient_summary,
     count_images,
     entity_summaries,
@@ -88,12 +90,14 @@ class DatasetEDA:
         output_dir: str = "results/ulcer/eda",
         fps: float = 1.0,
         heldout_manifest_path: str | None = None,
+        excel_path: str | None = None,
     ):
         self.splits_dir = Path(splits_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.fps = fps
         self.heldout_manifest_path = Path(heldout_manifest_path) if heldout_manifest_path else None
+        self.excel_path = Path(excel_path) if excel_path else None
 
         self.df: pd.DataFrame | None = None
         self.patient_info: dict | None = None
@@ -301,6 +305,18 @@ class DatasetEDA:
             stats["patient_leakage"] = leakage
 
         return stats
+
+    def compute_annotation_duration_stats(self) -> dict | None:
+        """Annotated clip-duration stats (seconds) from annotations.xlsx, if available."""
+        if not self.excel_path:
+            return None
+        if not self.excel_path.exists():
+            logger.info(
+                "Annotation Excel not found at %s, skipping annotated clip-duration stats.",
+                self.excel_path,
+            )
+            return None
+        return annotation_duration_ulcer(self.excel_path)
 
     def compute_image_statistics(self, sample_size: int | None = None, n_workers: int = 4) -> dict:
         sample_df = (
@@ -693,7 +709,11 @@ class DatasetEDA:
     # ------------------------------------------------------------------
 
     def generate_report(
-        self, stats: dict, img_stats: dict, heldout_stats: dict | None = None
+        self,
+        stats: dict,
+        img_stats: dict,
+        heldout_stats: dict | None = None,
+        annotation_stats: dict | None = None,
     ) -> str:
         lines: list[str] = []
         heldout_stats = heldout_stats or {}
@@ -734,6 +754,24 @@ class DatasetEDA:
             f" | median {fpc['duration_s_median']:.1f}]"
             f"   (@ {fpc['fps']} FPS)"
         )
+
+        if annotation_stats:
+            lines.append("")
+            for name in ("Ulcer", "NonUlcer"):
+                s = annotation_stats.get(name, {})
+                if s.get("count", 0):
+                    lines.append(
+                        f"  Annotated duration ({name}, Excel)"
+                        f"  mean {s['mean']:.1f} +/- {s['std']:.1f}"
+                        f"   [min {s['min']:.1f} - max {s['max']:.1f} | median {s['median']:.1f}]"
+                        f"   n={s['count']}"
+                    )
+            lines.append(
+                f"  Annotated duration (all, Excel)"
+                f"  mean {annotation_stats['_total']['mean']:.1f} +/- {annotation_stats['_total']['std']:.1f}"
+                f"   [min {annotation_stats['_total']['min']:.1f} - max {annotation_stats['_total']['max']:.1f} | median {annotation_stats['_total']['median']:.1f}]"
+                f"   n={annotation_stats['_total']['count']}"
+            )
 
         if "per_split" in stats:
             h2("2. SPLIT STATISTICS")
@@ -883,6 +921,7 @@ class DatasetEDA:
             else {}
         )
         heldout_stats = self.compute_heldout_statistics()
+        annotation_stats = self.compute_annotation_duration_stats()
 
         self.plot_class_distribution()
         self.plot_clip_distribution()
@@ -915,7 +954,7 @@ class DatasetEDA:
         split_diag = split_diagnostics(self.df)
         entities, _, _ = entity_summaries(self.df)
 
-        report = self.generate_report(stats, img_stats, heldout_stats)
+        report = self.generate_report(stats, img_stats, heldout_stats, annotation_stats)
         print(report)
         (self.output_dir / "eda_report.txt").write_text(report, encoding="utf-8")
 
@@ -924,6 +963,7 @@ class DatasetEDA:
                 "dataset_stats": stats,
                 "image_stats": img_stats,
                 "heldout_stats": heldout_stats,
+                "annotation_duration_stats": annotation_stats,
                 "manifest_quality": quality,
                 "split_diagnostics": split_diag,
                 "entities": entities,
@@ -955,6 +995,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(paths.ulcer_heldout_dir / "heldout_temporal_manifest.csv"),
         help="Path to the heldout temporal manifest (optional, skipped if not found; "
         "not included in the public repo, see data/ulcer/heldout/README.md).",
+    )
+    parser.add_argument(
+        "--excel",
+        type=str,
+        default=str(paths.ulcer_raw_dir / "annotations.xlsx"),
+        help="Path to the ulcer annotation Excel workbook, for annotated clip-duration "
+        "stats (optional, skipped if not found).",
     )
     parser.add_argument(
         "--fps",
@@ -999,6 +1046,7 @@ def main(args: argparse.Namespace) -> None:
         output_dir=args.output_dir,
         fps=args.fps,
         heldout_manifest_path=args.heldout_manifest,
+        excel_path=args.excel,
     )
     eda.run_full_analysis(
         compute_image_stats=args.image_stats,

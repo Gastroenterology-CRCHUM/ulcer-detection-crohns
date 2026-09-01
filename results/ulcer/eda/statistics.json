@@ -11,13 +11,13 @@
       "ulcer_negative": 88,
       "frames_per_clip": {
         "mean": 30.80821917808219,
-        "std": 13.24324945461449,
+        "std": 13.243249454614487,
         "min": 1,
         "max": 51,
         "median": 30.0,
         "fps": 10.0,
         "duration_s_mean": 3.080821917808219,
-        "duration_s_std": 1.324324945461449,
+        "duration_s_std": 1.3243249454614487,
         "duration_s_min": 0.1,
         "duration_s_max": 5.1,
         "duration_s_median": 3.0
@@ -83,7 +83,7 @@
       "ulcer_negative": 28,
       "frames_per_clip": {
         "mean": 24.2,
-        "std": 6.750462947087405,
+        "std": 6.7504629470874065,
         "min": 10,
         "max": 41,
         "median": 21.0
@@ -111,6 +111,32 @@
         "count": 0,
         "examples": []
       }
+    }
+  },
+  "annotation_duration_stats": {
+    "Ulcer": {
+      "mean": 2.8923076923076922,
+      "std": 1.4155727299740393,
+      "min": 1.0,
+      "max": 5.0,
+      "median": 3.0,
+      "count": 65
+    },
+    "NonUlcer": {
+      "mean": 4.2926829268292686,
+      "std": 0.9620939724391135,
+      "min": 2.0,
+      "max": 5.0,
+      "median": 5.0,
+      "count": 82
+    },
+    "_total": {
+      "mean": 3.673469387755102,
+      "std": 1.3707475478037145,
+      "min": 1.0,
+      "max": 5.0,
+      "median": 4.0,
+      "count": 147
     }
   },
   "manifest_quality": {

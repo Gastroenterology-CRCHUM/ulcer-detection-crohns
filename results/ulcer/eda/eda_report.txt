@@ -13,6 +13,10 @@
   Frames/clip  mean 30.8 +/- 13.2   [min 1 - max 51 | median 30]
   Duration (s) mean 3.1 +/- 1.3   [min 0.1 - max 5.1 | median 3.0]   (@ 10.0 FPS)
 
+  Annotated duration (Ulcer, Excel)  mean 2.9 +/- 1.4   [min 1.0 - max 5.0 | median 3.0]   n=65
+  Annotated duration (NonUlcer, Excel)  mean 4.3 +/- 1.0   [min 2.0 - max 5.0 | median 5.0]   n=82
+  Annotated duration (all, Excel)  mean 3.7 +/- 1.4   [min 1.0 - max 5.0 | median 4.0]   n=147
+
 2. SPLIT STATISTICS
 -------------------
                                          train         val        test
@@ -42,7 +46,7 @@
 4. STRATIFICATION AUDIT
 -----------------------
   Method : ulcer_ratio
-  [OK] No rare strata — all patients split via stratified sampling.
+  [OK] No rare strata, all patients split via stratified sampling.
 
   Strata:
     high_ulcer                               8 patient(s)

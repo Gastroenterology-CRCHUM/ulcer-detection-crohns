@@ -5,12 +5,15 @@ Generic plotting and analysis functions used by scripts/ulcer/eda.py.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
+logger = logging.getLogger(__name__)
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 
@@ -39,6 +42,52 @@ def count_images(root: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Annotation-window duration (from Excel)
+# ---------------------------------------------------------------------------
+
+
+def _duration_stats(values) -> dict:
+    values = pd.Series(list(values), dtype=float)
+    if values.empty:
+        return {"mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "median": 0.0, "count": 0}
+    return {
+        "mean": float(values.mean()),
+        "std": float(values.std()) if len(values) > 1 else 0.0,
+        "min": float(values.min()),
+        "max": float(values.max()),
+        "median": float(values.median()),
+        "count": int(len(values)),
+    }
+
+
+def annotation_duration_ulcer(excel_path: Path) -> dict | None:
+    """Clip-duration stats (seconds), per label, from the annotation windows in annotations.xlsx.
+
+    Cross-checks the *annotated* clip length against what actually got extracted
+    (see "Duration (s)" in the dataset overview), a large gap usually means an
+    extraction or fps bug. Returns None if the Excel can't be read.
+    """
+    try:
+        from src.data.annotation_loaders import load_ulcer_annotations
+
+        df = load_ulcer_annotations(Path(excel_path))
+    except Exception as exc:
+        logger.warning("Could not load ulcer annotations from %s: %s", excel_path, exc)
+        return None
+
+    df = df.copy()
+    df["duration_s"] = df["end_s"] - df["start_s"]
+    label_names = {1: "Ulcer", 0: "NonUlcer"}
+
+    result: dict = {
+        name: _duration_stats(df[df["label"] == label]["duration_s"])
+        for label, name in label_names.items()
+    }
+    result["_total"] = _duration_stats(df["duration_s"])
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Filtering
 # ---------------------------------------------------------------------------
 
@@ -47,9 +96,7 @@ def plot_filter_outcomes(pred_df: pd.DataFrame, output_dir: Path) -> None:
     if pred_df.empty or "category" not in pred_df.columns:
         return
     counts = (
-        pred_df["category"]
-        .value_counts()
-        .reindex(["informative", "non_informative"], fill_value=0)
+        pred_df["category"].value_counts().reindex(["informative", "non_informative"], fill_value=0)
     )
     fig, ax = plt.subplots(figsize=(8, 5))
     bars = ax.bar(counts.index, counts.values, color=["#2ecc71", "#e74c3c"], edgecolor="black")
