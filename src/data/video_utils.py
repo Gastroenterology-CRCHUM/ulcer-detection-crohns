@@ -9,6 +9,7 @@ detect_green_rectangle(image)       → 'Fuji' | 'Olympus'
 normalize_video_id(video_id)        → str
 find_overlay_offset(video_path)     → float | None
 _detect_platform_from_video(path)   → 'fuji' | 'olympus'
+crop_platform(frame, platform)      → np.ndarray
 """
 
 from __future__ import annotations
@@ -81,6 +82,31 @@ def _detect_platform_from_video(video_path: Path) -> str:
             break
     cap.release()
     return platform
+
+
+# ---------------------------------------------------------------------------
+# Platform-aware ROI crop
+# ---------------------------------------------------------------------------
+
+# Values derived from notebooks/crop_helper.ipynb
+OLYMPUS_CROP = {"y1": 0, "y2": -0, "x1": 550, "x2_right": 20}
+FUJI_CROP = {"y1": 60, "y2_bottom": 60, "x1": 140, "x2_right": 690}
+
+
+def crop_platform(frame: np.ndarray, platform: str) -> np.ndarray:
+    """Lateral/vertical crop removing the endoscope's UI panel — Fuji or Olympus geometry."""
+    h, w = frame.shape[:2]
+    if platform == "fuji":
+        y1 = min(max(FUJI_CROP["y1"], 0), h)
+        y2 = max(y1 + 1, h - FUJI_CROP["y2_bottom"])
+        x1 = min(max(FUJI_CROP["x1"], 0), w)
+        x2 = max(x1 + 1, w - FUJI_CROP["x2_right"])
+        return frame[y1:y2, x1:x2]
+    y1 = min(max(OLYMPUS_CROP["y1"], 0), h)
+    y2 = h
+    x1 = min(max(OLYMPUS_CROP["x1"], 0), w)
+    x2 = max(x1 + 1, w - OLYMPUS_CROP["x2_right"])
+    return frame[y1:y2, x1:x2]
 
 
 # ---------------------------------------------------------------------------

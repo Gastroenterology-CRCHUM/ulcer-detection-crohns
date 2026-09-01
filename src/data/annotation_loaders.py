@@ -124,7 +124,7 @@ def sample_intervals_from_excel(
 def load_ulcer_annotations(excel_path: Path) -> pd.DataFrame:
     """Load ulcer/non-ulcer timestamps from Excel → unified DataFrame.
 
-    Expected sheets: "Ulcer timestamps", "Non-Ulcer timestamps".
+    Expected sheets: "ulcer", "non_ulcer".
     Expected columns: record_id, start_time (HH:MM:SS), end_time, sample_number.
 
     Returns
@@ -133,7 +133,7 @@ def load_ulcer_annotations(excel_path: Path) -> pd.DataFrame:
         label: 1 = ulcer, 0 = non-ulcer
     """
     dfs = []
-    for sheet, label in (("Ulcer timestamps", 1), ("Non-Ulcer timestamps", 0)):
+    for sheet, label in (("ulcer", 1), ("non_ulcer", 0)):
         try:
             df = pd.read_excel(excel_path, sheet_name=sheet)
         except Exception as exc:

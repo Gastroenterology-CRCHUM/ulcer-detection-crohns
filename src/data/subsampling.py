@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -88,6 +89,7 @@ def _extract_embeddings(
     *,
     device: str = "cpu",
     batch_size: int = 32,
+    preprocess_fn: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> np.ndarray:
     embeddings_list: list[np.ndarray] = []
     backbone.eval()
@@ -99,6 +101,8 @@ def _extract_embeddings(
                 if img is None:
                     tensors.append(torch.zeros(3, 224, 224))
                     continue
+                if preprocess_fn is not None:
+                    img = preprocess_fn(img)
                 tensors.append(_TRANSFORM(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
             batch = torch.stack(tensors).to(device)
             out = backbone(batch).flatten(1)
@@ -113,11 +117,17 @@ def visual_subsample(
     backbone: nn.Module | None = None,
     device: str = "cpu",
     batch_size: int = 32,
+    preprocess_fn: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> list[Path]:
     """Select up to max_count frames maximising visual diversity.
 
     Uses greedy farthest-point sampling on backbone embeddings when a backbone
     is provided; falls back to uniform stride otherwise.
+
+    preprocess_fn, when given, is applied to each raw BGR frame (e.g. an
+    endoscope-platform ROI crop) before computing its embedding — it has no
+    effect on the frame files themselves, only on the diversity signal used
+    to pick among them.
     """
     if len(frame_paths) <= max_count:
         return list(frame_paths)
@@ -127,7 +137,9 @@ def visual_subsample(
         return [frame_paths[i] for i in indices]
 
     logger.info("Extracting embeddings for %d frames …", len(frame_paths))
-    embeddings = _extract_embeddings(backbone, frame_paths, device=device, batch_size=batch_size)
+    embeddings = _extract_embeddings(
+        backbone, frame_paths, device=device, batch_size=batch_size, preprocess_fn=preprocess_fn
+    )
 
     # Greedy farthest-point sampling (maximise minimum pairwise distance)
     selected = [0]

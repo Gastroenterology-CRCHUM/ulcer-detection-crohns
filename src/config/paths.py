@@ -15,14 +15,17 @@ data/
 │   │   │   └── vid_XX_XXXX/
 │   │   │       └── normal_X/
 │   │   ├── videos/                # Original videos (annotation extraction)
-│   │   └── Ulcer and Non-Ulcer Timestamps.xlsx
+│   │   └── annotations.xlsx       # sheets: "ulcer", "non_ulcer"
 │   ├── processed/                 # Cropped frames (1350×1080)
 │   │   ├── Ulcer/
 │   │   └── NonUlcer/
-│   └── splits/                    # Train/val/test manifests
-│       ├── dataset_manifest.csv
-│       ├── split_info.json
-│       └── train.csv / val.csv / test.csv
+│   ├── splits/                    # Train/val/test manifests
+│   │   ├── dataset_manifest.csv
+│   │   ├── split_info.json
+│   │   └── train.csv / val.csv / test.csv
+│   └── heldout/                   # Temporal held-out test cohort (not one of the splits above)
+│       ├── README.md
+│       └── heldout_temporal_manifest.csv  ← not included (IRB)
 │
 └── assets/                        # Shared assets
     ├── pretrained/                # Pre-trained model weights (ResNet, ViT, DINO, etc.)
@@ -81,6 +84,10 @@ class UlcerPaths:
     def splits(self) -> Path:
         return self.root / "splits"
 
+    @property
+    def heldout(self) -> Path:
+        return self.root / "heldout"
+
 
 # ============================================================================
 # Central config
@@ -109,6 +116,8 @@ class PathConfig:
     def ulcer_filtrated_dir(self) -> Path:     return self.ulcer.filtrated
     @property
     def ulcer_splits_dir(self) -> Path:        return self.ulcer.splits
+    @property
+    def ulcer_heldout_dir(self) -> Path:       return self.ulcer.heldout
 
     # ============================================================================
     # ASSETS
