@@ -39,7 +39,9 @@ results/ulcer/filtering/
 data/ulcer/raw/
 data/ulcer/processed/
 data/ulcer/filtrated/
-data/ulcer/heldout/*
+data/ulcer/splits/
+data/ulcer/heldout/raw
+data/ulcer/heldout/*/*.png
 !data/ulcer/heldout/README.md
 data/assets/pretrained/*.pth
 
