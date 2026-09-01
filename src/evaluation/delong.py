@@ -3,7 +3,7 @@ src/evaluation/delong.py
 ------------------------
 DeLong test for comparing correlated AUROCs.
 
-Reference: DeLong et al. (1988) — Comparing the areas under two or more
+Reference: DeLong et al. (1988), Comparing the areas under two or more
 correlated receiver operating characteristic curves: a nonparametric approach.
 Biometrics, 44(3), 837-845.
 
@@ -40,7 +40,7 @@ def _placement_values(
     """Compute placement values V10 and V01 for a classifier.
 
     V10[i] = fraction of negatives whose score is lower than positive i
-             (+ 0.5 × fraction of ties — standard tie-breaking rule).
+             (+ 0.5 × fraction of ties, standard tie-breaking rule).
     V01[j] = fraction of positives whose score is higher than negative j.
 
     AUC = mean(V10) = mean(V01).

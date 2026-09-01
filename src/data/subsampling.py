@@ -41,7 +41,7 @@ def load_backbone_for_embeddings(
         from src.config import get_model_entry
         from src.models.classifier import ClassifierModel
     except ImportError as exc:
-        logger.warning("Cannot import ClassifierModel (%s) — uniform stride fallback.", exc)
+        logger.warning("Cannot import ClassifierModel (%s), uniform stride fallback.", exc)
         return None
 
     try:
@@ -59,7 +59,7 @@ def load_backbone_for_embeddings(
             gastronet_path=entry.gastronet,
         )
     except Exception as exc:
-        logger.warning("Failed to build backbone (%s) — uniform stride fallback.", exc)
+        logger.warning("Failed to build backbone (%s), uniform stride fallback.", exc)
         return None
 
     if checkpoint_path is not None and checkpoint_path.exists():
@@ -125,7 +125,7 @@ def visual_subsample(
     is provided; falls back to uniform stride otherwise.
 
     preprocess_fn, when given, is applied to each raw BGR frame (e.g. an
-    endoscope-platform ROI crop) before computing its embedding — it has no
+    endoscope-platform ROI crop) before computing its embedding, it has no
     effect on the frame files themselves, only on the diversity signal used
     to pick among them.
     """

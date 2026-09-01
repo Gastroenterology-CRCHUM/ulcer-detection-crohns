@@ -80,11 +80,11 @@ def load_model(
     missing, unexpected = wrapper.base_model.load_state_dict(state_dict, strict=False)
     if missing:
         print(
-            f"  [warn] {raw_name}: {len(missing)} missing key(s)   — {missing[:3]}... , classifier not well initialized"
+            f"  [warn] {raw_name}: {len(missing)} missing key(s)  , {missing[:3]}... , classifier not well initialized"
         )
     if unexpected:
         print(
-            f"  [warn] {raw_name}: {len(unexpected)} unexpected key(s) — {unexpected[:3]}... , classifier not well initialized"
+            f"  [warn] {raw_name}: {len(unexpected)} unexpected key(s), {unexpected[:3]}... , classifier not well initialized"
         )
 
     return wrapper

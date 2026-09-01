@@ -167,7 +167,7 @@ def run_delong(
         raise ValueError(f"level must be 'frame' or 'clip', got '{level}'")
 
     print("\n" + "=" * 60)
-    print(f"DELONG TEST — {level.capitalize()}-level AUROC comparisons")
+    print(f"DELONG TEST, {level.capitalize()}-level AUROC comparisons")
     print("=" * 60)
 
     p_matrix, df_delong = delong_matrix(

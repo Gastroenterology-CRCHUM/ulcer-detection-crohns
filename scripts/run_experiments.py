@@ -1,7 +1,7 @@
 """
 scripts/run_experiments.py
 ==========================
-Experiment orchestrator — runs sequential training jobs from a YAML plan.
+Experiment orchestrator, runs sequential training jobs from a YAML plan.
 
 Usage
 -----
@@ -82,25 +82,49 @@ RUN_DEFAULTS: dict = {
     "tune_clip_threshold": False,
 }
 
-# Built-in plan — 9 model configurations evaluated in the paper
-# (Berndt*, Mashayekhi* et al. — ulcer detection in Crohn's disease)
+# Built-in plan, 9 model configurations evaluated in the paper
+# (Berndt*, Mashayekhi* et al., ulcer detection in Crohn's disease)
 # All runs use 5-fold patient-stratified cross-validation.
 # LRs: self-supervised models confirmed from sibling data-efficiency repo.
 # Supervised ImageNet LRs follow standard fine-tuning convention (1e-4 / 1e-5).
 DEFAULT_PLAN: list[dict] = [
     # ── ResNet-50 ────────────────────────────────────────────────────────
-    {"model": "resnet50_imagenet_sup", "freeze_layers": 0, "lr": 1e-4,  "epochs": 100, "batch_size": 64},
-    {"model": "resnet50_imagenet",     "freeze_layers": 0, "lr": 1e-5,  "epochs": 100, "batch_size": 64},
-    {"model": "resnet50_gastronet",    "freeze_layers": 0, "lr": 1e-6,  "epochs": 100, "batch_size": 64},
+    {
+        "model": "resnet50_imagenet_sup",
+        "freeze_layers": 0,
+        "lr": 1e-4,
+        "epochs": 100,
+        "batch_size": 64,
+    },
+    {"model": "resnet50_imagenet", "freeze_layers": 0, "lr": 1e-5, "epochs": 100, "batch_size": 64},
+    {
+        "model": "resnet50_gastronet",
+        "freeze_layers": 0,
+        "lr": 1e-6,
+        "epochs": 100,
+        "batch_size": 64,
+    },
     # ── EfficientNet-B0 ──────────────────────────────────────────────────
-    {"model": "efficientnetb0",        "freeze_layers": 0, "lr": 3e-5,  "epochs": 100, "batch_size": 64},
+    {"model": "efficientnetb0", "freeze_layers": 0, "lr": 3e-5, "epochs": 100, "batch_size": 64},
     # ── ViT-Base/16 ──────────────────────────────────────────────────────
-    {"model": "vitb16_imagenet_sup",   "freeze_layers": 0, "lr": 1e-4,  "epochs": 100, "batch_size": 64},
-    {"model": "vitb16_imagenet",       "freeze_layers": 0, "lr": 1e-6,  "epochs": 100, "batch_size": 64},
+    {
+        "model": "vitb16_imagenet_sup",
+        "freeze_layers": 0,
+        "lr": 1e-4,
+        "epochs": 100,
+        "batch_size": 64,
+    },
+    {"model": "vitb16_imagenet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
     # ── ViT-Small/16 ─────────────────────────────────────────────────────
-    {"model": "vits16_imagenet_hf",    "freeze_layers": 0, "lr": 1e-5,  "epochs": 100, "batch_size": 64},
-    {"model": "vits16_imagenet",       "freeze_layers": 0, "lr": 1e-6,  "epochs": 100, "batch_size": 64},
-    {"model": "vits16_gastronet",      "freeze_layers": 0, "lr": 1e-6,  "epochs": 100, "batch_size": 64},
+    {
+        "model": "vits16_imagenet_hf",
+        "freeze_layers": 0,
+        "lr": 1e-5,
+        "epochs": 100,
+        "batch_size": 64,
+    },
+    {"model": "vits16_imagenet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
+    {"model": "vits16_gastronet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
 ]
 
 
@@ -231,7 +255,7 @@ def _fmt_run(i: int, total: int, run: dict) -> str:
 
 def print_plan(task: str, plan: list[dict]) -> None:
     print("\n" + "=" * 80)
-    print(f"EXPERIMENT PLAN  —  {_TASK_DISPLAY[task]}  —  {len(plan)} runs")
+    print(f"EXPERIMENT PLAN ,  {_TASK_DISPLAY[task]} ,  {len(plan)} runs")
     print("=" * 80)
     for i, run in enumerate(plan, 1):
         print(_fmt_run(i, len(plan), run))
@@ -304,7 +328,7 @@ def _print_metrics_report(pipeline: PipelineDef, session_start: float) -> None:
                 val = row.get(f"metrics.{key}")
                 if pd.notna(val):
                     return f"{float(val):6.4f}"
-            return "  — "
+            return " , "
 
         def _display_name(row: pd.Series) -> str:
             name = str(row.get("tags.mlflow.runName", "?"))
@@ -318,7 +342,7 @@ def _print_metrics_report(pipeline: PipelineDef, session_start: float) -> None:
 
         # ── Frame-level ────────────────────────────────────────────────────────
         print("\n" + "=" * W)
-        print("PERFORMANCE REPORT — FRAME LEVEL")
+        print("PERFORMANCE REPORT, FRAME LEVEL")
         print("=" * W)
         hdr = (
             f"{'Model':<32}"
@@ -381,7 +405,7 @@ def _print_metrics_report(pipeline: PipelineDef, session_start: float) -> None:
         )
         if has_clip:
             print("\n" + "=" * W)
-            print("PERFORMANCE REPORT — CLIP LEVEL")
+            print("PERFORMANCE REPORT, CLIP LEVEL")
             print("=" * W)
             hdr_clip = (
                 f"{'Model':<32} {'Clip F1':^9} {'Clip AUROC':^11}"
@@ -443,7 +467,7 @@ def run_experiments(
         if heldout_manifest_path is not None:
             print(f"Heldout manifest : {heldout_manifest_path}")
             print(f"Heldout data dir : {heldout_data_dir}")
-        print("Dry-run — no training launched.")
+        print("Dry-run, no training launched.")
         return
 
     if not manifest_path.exists():
@@ -514,7 +538,7 @@ def run_experiments(
                 )
 
         except KeyboardInterrupt:
-            print("\n  [!] Keyboard interrupt — stopping.")
+            print("\n  [!] Keyboard interrupt, stopping.")
             results.append({**run, "status": "interrupted", "duration_min": 0, "error": ""})
             break
 
@@ -553,7 +577,7 @@ def run_experiments(
     n_ok = sum(1 for r in results if r["status"] == "✓")
     n_err = sum(1 for r in results if r["status"] == "✗")
     print("-" * 70)
-    print(f"Total : {n_ok} succeeded, {n_err} failed — {timedelta(seconds=int(total_elapsed))}")
+    print(f"Total : {n_ok} succeeded, {n_err} failed, {timedelta(seconds=int(total_elapsed))}")
     print("=" * 80)
 
     _print_metrics_report(pipeline, total_start)
@@ -565,9 +589,7 @@ def run_experiments(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Experiment orchestrator for ulcer detection"
-    )
+    parser = argparse.ArgumentParser(description="Experiment orchestrator for ulcer detection")
     parser.add_argument(
         "--plan",
         default=None,
@@ -588,7 +610,7 @@ def main() -> None:
         default=None,
         help=(
             "Directory the held-out manifest's relative_path column is relative to "
-            "(default: data/ulcer/heldout — see scripts/ulcer/create_heldout_manifest.py). "
+            "(default: data/ulcer/heldout, see scripts/ulcer/create_heldout_manifest.py). "
             "Only used together with --heldout-manifest."
         ),
     )

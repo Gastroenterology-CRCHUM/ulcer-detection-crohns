@@ -63,7 +63,7 @@ def collect_probabilities(
         num_classes: 1 → sigmoid output; >1 → softmax, class-1 probability.
 
     Returns:
-        probs:  float32 array of shape (N,) — P(ulcer) for each sample.
+        probs:  float32 array of shape (N,), P(ulcer) for each sample.
         labels: int array   of shape (N,).
     """
     model.eval()
@@ -94,7 +94,7 @@ def collect_probabilities(
 
 
 # ---------------------------------------------------------------------------
-# 2. Threshold sweep (pure computation — no model, no dataloader)
+# 2. Threshold sweep (pure computation, no model, no dataloader)
 # ---------------------------------------------------------------------------
 
 
@@ -107,8 +107,8 @@ def sweep_thresholds(
     across all result dicts to avoid redundant computation and memory waste.
 
     Args:
-        probs:        Float array of shape (N,) — predicted positive probabilities.
-        labels:       Int array   of shape (N,) — ground-truth binary labels.
+        probs:        Float array of shape (N,), predicted positive probabilities.
+        labels:       Int array   of shape (N,), ground-truth binary labels.
         n_thresholds: Number of evenly-spaced thresholds in (0, 1).
                       99  → step 0.01  (fast, for scripts).
                       9999 → step 0.0001 (fine, for notebooks).
@@ -121,7 +121,7 @@ def sweep_thresholds(
     """
     thresholds = np.linspace(0.1, 0.9, n_thresholds + 1)  # exclude extreme values
 
-    # Compute AUROC once — it is threshold-independent
+    # Compute AUROC once, it is threshold-independent
     # For multiclass (>2 classes), must specify multi_class parameter
     if num_classes > 2:
         roc_auc = roc_auc_score(labels, probs, multi_class="ovr")

@@ -1,6 +1,6 @@
 """Build the temporal held-out manifest from data/ulcer/heldout/{Ulcer,NonUlcer}.
 
-Every row gets split="heldout" — this is not a train/val/test split of the
+Every row gets split="heldout", this is not a train/val/test split of the
 main cohort (see scripts/ulcer/create_manifest.py for that). It's an
 independent patient cohort, evaluated post-hoc against already-trained
 models. See data/ulcer/heldout/README.md.

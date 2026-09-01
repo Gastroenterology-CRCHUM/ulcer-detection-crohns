@@ -45,7 +45,7 @@ def build_frame_queue(
     """Convert a list of frame intervals into an ordered annotation queue.
 
     Args:
-        cap:        ``cv2.VideoCapture`` (used only to validate — not read here).
+        cap:        ``cv2.VideoCapture`` (used only to validate, not read here).
         fps:        Native video frame rate.
         sample_fps: Desired extraction frame rate (≤ fps).
         intervals:  List of ``(start_frame, end_frame)`` or

@@ -3,7 +3,7 @@ src/evaluation/metrics.py
 -------------------------
 Pure metric computation with bootstrap confidence intervals.
 
-No I/O, no MLflow, no plotting — only numerical results.
+No I/O, no MLflow, no plotting, only numerical results.
 
 Public API
 ----------
@@ -64,7 +64,7 @@ def _auroc(labels, preds, probs):
         if n_present < probs.shape[1]:
             print(
                 f"  [warn] AUROC: {n_present}/{probs.shape[1]} classes present "
-                f"({present_classes}) — partial AUROC."
+                f"({present_classes}), partial AUROC."
             )
             probs_partial = probs[:, present_classes]
             row_sums = probs_partial.sum(axis=1, keepdims=True)
@@ -72,7 +72,7 @@ def _auroc(labels, preds, probs):
             probs_partial = probs_partial / row_sums
 
             if n_present == 2:
-                # Degraded binary case — take the probability of the highest class
+                # Degraded binary case, take the probability of the highest class
                 return float(
                     roc_auc_score(
                         (labels == present_classes[1]).astype(int),
@@ -177,7 +177,7 @@ def bootstrap_ci(
 
     if not scores:
         point_estimate = round(float(metric_fn(labels, preds, probs)), 3)
-        print("  [warn] bootstrap_ci: no valid samples — CI unavailable, returning point estimate.")
+        print("  [warn] bootstrap_ci: no valid samples, CI unavailable, returning point estimate.")
         return point_estimate, float("nan"), float("nan")
 
     alpha = (100 - ci) / 2

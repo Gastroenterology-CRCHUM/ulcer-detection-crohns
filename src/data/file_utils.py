@@ -14,7 +14,7 @@ def scan(root: Path, extensions: tuple[str, ...] = _IMAGE_EXTS) -> dict[str, lis
     """Walk *root* recursively and index each image file by its full stem.
 
     Returns:
-        Mapping ``{stem: [list of Path]}`` — each key is the filename without
+        Mapping ``{stem: [list of Path]}``, each key is the filename without
         extension; values are all files sharing that stem.
     """
     index: dict[str, list[Path]] = defaultdict(list)
@@ -39,7 +39,7 @@ def find_duplicates(index: dict[str, list[Path]]) -> list[dict]:
 
 
 def duplicate_report(dupes: list[dict], root: Path) -> pd.DataFrame:
-    """Build a DataFrame of duplicates — one row per file copy.
+    """Build a DataFrame of duplicates, one row per file copy.
 
     Columns: stem, folder, filename, path, size_kb, mtime.
     """

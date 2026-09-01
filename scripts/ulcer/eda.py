@@ -1,27 +1,26 @@
-"""Stage 5 — EDA for the ulcer detection dataset.
+"""Stage 5, EDA for the ulcer detection dataset.
 
 Combines frame-flow analysis (raw → processed → filtrated) with a full
 dataset EDA covering class distribution, clip analysis, split quality,
-and optionally per-image statistics.
+and optionally per-image statistics. Also profiles the temporal heldout
+cohort (when its manifest is present) and checks it for patient-level
+overlap against train/val/test.
 
 Input : data/ulcer/raw/, data/ulcer/processed/, data/ulcer/filtrated/
         data/ulcer/splits/dataset_manifest.csv
+        data/ulcer/heldout/heldout_temporal_manifest.csv  (optional, not in public repo)
 Output: results/ulcer/eda/
-        ├── frame_flow.png
         ├── filter_outcomes.png
-        ├── video_retention_ratio.png
         ├── class_distribution.png
         ├── clip_distribution.png
-        ├── split_patients.png
-        ├── split_clips.png
-        ├── split_frames.png
+        ├── split_overview.png
         ├── split_class_balance.png
-        ├── top_videos_frame_count.png
         ├── sample_images.png
         ├── image_statistics.png         (optional --image-stats)
-        ├── video_summary.csv
-        ├── clip_summary.csv
-        ├── split_label_table.csv
+        ├── frames_per_patient.png
+        ├── patient_table.png
+        ├── heldout_overview.png         (optional, if heldout manifest found)
+        ├── heldout_patient_table.png    (optional, if heldout manifest found)
         ├── eda_report.txt
         └── statistics.json
 
@@ -48,20 +47,15 @@ from tqdm import tqdm
 
 from src.config.paths import get_default_paths
 from src.data.eda_utils import (
+    build_patient_summary,
     count_images,
     entity_summaries,
     manifest_quality_checks,
     plot_filter_outcomes,
-    plot_frame_flow,
-    plot_frames_per_video,
-    plot_video_retention,
+    plot_frames_per_patient,
+    plot_patient_table,
     split_diagnostics,
     to_serializable,
-)
-from src.data.pipeline_report import (
-    annotation_duration_ulcer,
-    collect_stage_stats,
-    format_pipeline_report,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -74,7 +68,7 @@ SPLITS = ["train", "val", "test"]
 
 
 # ---------------------------------------------------------------------------
-# DatasetEDA — ulcer-specific comprehensive analysis
+# DatasetEDA, ulcer-specific comprehensive analysis
 # ---------------------------------------------------------------------------
 
 
@@ -93,17 +87,22 @@ class DatasetEDA:
         splits_dir: str = "data/ulcer/splits",
         output_dir: str = "results/ulcer/eda",
         fps: float = 1.0,
+        heldout_manifest_path: str | None = None,
     ):
         self.splits_dir = Path(splits_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.fps = fps
+        self.heldout_manifest_path = Path(heldout_manifest_path) if heldout_manifest_path else None
 
         self.df: pd.DataFrame | None = None
         self.patient_info: dict | None = None
         self.split_info: dict | None = None
         self.image_stats: pd.DataFrame | None = None
         self._clip_df: pd.DataFrame | None = None
+
+        self.heldout_df: pd.DataFrame | None = None
+        self._heldout_clip_df: pd.DataFrame | None = None
 
     def load_data(self) -> None:
         manifest_path = self.splits_dir / "dataset_manifest.csv"
@@ -129,6 +128,47 @@ class DatasetEDA:
             len(self.df),
             self.df["clip_key"].nunique() if "clip_key" in self.df.columns else 0,
             self.df["patient_id"].nunique() if "patient_id" in self.df.columns else 0,
+        )
+
+    def load_heldout_data(self) -> None:
+        """Load the temporal heldout manifest, if present and non-empty.
+
+        Not included in the public repo (IRB restrictions), missing is expected
+        and just skips the heldout section, it isn't an error.
+        """
+        if not self.heldout_manifest_path:
+            return
+        if not self.heldout_manifest_path.exists():
+            logger.info(
+                "Heldout manifest not found at %s, skipping heldout EDA "
+                "(see data/ulcer/heldout/README.md).",
+                self.heldout_manifest_path,
+            )
+            return
+
+        df = pd.read_csv(self.heldout_manifest_path)
+        if df.empty:
+            logger.warning(
+                "Heldout manifest %s is empty, skipping heldout EDA.", self.heldout_manifest_path
+            )
+            return
+
+        df["class_name"] = df["label"].map({1: "Ulcer", 0: "NonUlcer"})
+        self.heldout_df = df
+        self._heldout_clip_df = (
+            df.groupby("clip_key")
+            .agg(
+                patient_id=("patient_id", "first"),
+                label=("label", "max"),
+                n_frames=("label", "count"),
+            )
+            .reset_index()
+        )
+        logger.info(
+            "Loaded heldout: %d frames | %d clips | %d patients",
+            len(df),
+            df["clip_key"].nunique(),
+            df["patient_id"].nunique(),
         )
 
     # ------------------------------------------------------------------
@@ -208,6 +248,57 @@ class DatasetEDA:
 
         if self.split_info and "stratification" in self.split_info:
             stats["stratification_audit"] = self.split_info["stratification"]
+
+        return stats
+
+    def compute_heldout_statistics(self) -> dict:
+        """Heldout counts plus a patient-level leakage check against train/val/test."""
+        if self.heldout_df is None:
+            return {}
+        df = self.heldout_df
+        clip_df = self._heldout_clip_df
+
+        ulcer_patients = set(df[df["label"] == 1]["patient_id"].astype(str))
+        non_ulcer_patients = set(df[df["label"] == 0]["patient_id"].astype(str)) - ulcer_patients
+
+        stats: dict = {
+            "patients": {
+                "total": df["patient_id"].nunique(),
+                "ulcer_positive": len(ulcer_patients),
+                "ulcer_negative": len(non_ulcer_patients),
+            },
+            "clips": {
+                "total": len(clip_df),
+                "ulcer_positive": int((clip_df["label"] == 1).sum()),
+                "ulcer_negative": int((clip_df["label"] == 0).sum()),
+                "frames_per_clip": {
+                    "mean": clip_df["n_frames"].mean(),
+                    "std": clip_df["n_frames"].std(),
+                    "min": int(clip_df["n_frames"].min()),
+                    "max": int(clip_df["n_frames"].max()),
+                    "median": clip_df["n_frames"].median(),
+                },
+            },
+            "frames": {
+                "total": len(df),
+                "ulcer_positive": int((df["label"] == 1).sum()),
+                "ulcer_negative": int((df["label"] == 0).sum()),
+            },
+        }
+
+        if self.df is not None and "patient_id" in self.df.columns:
+            held_patients = set(df["patient_id"].astype(str))
+            main_patients = set(self.df["patient_id"].astype(str))
+
+            def _overlap(patients: set) -> dict:
+                hit = sorted(held_patients & patients)
+                return {"count": len(hit), "examples": hit[:10]}
+
+            leakage = {"vs_main_total": _overlap(main_patients)}
+            for split in SPLITS:
+                split_patients = set(self.df[self.df["split"] == split]["patient_id"].astype(str))
+                leakage[f"vs_{split}"] = _overlap(split_patients)
+            stats["patient_leakage"] = leakage
 
         return stats
 
@@ -369,8 +460,18 @@ class DatasetEDA:
         present_splits = [s for s in SPLITS if s in self.df["split"].values]
         colors = {"train": "#3498db", "val": "#2ecc71", "test": "#e74c3c"}
 
-        # --- patients per split ---
-        fig, ax = plt.subplots(figsize=(6, 5))
+        frame_split = (
+            self.df.groupby(["split", "label"])
+            .size()
+            .unstack(fill_value=0)
+            .reindex(present_splits)
+            .rename(columns={0: "NonUlcer", 1: "Ulcer"})
+        )
+
+        # --- patients / clips / frames per split ---
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+        ax = axes[0]
         pt_counts = self.df.groupby("split")["patient_id"].nunique().reindex(present_splits)
         bars = ax.bar(
             pt_counts.index,
@@ -390,12 +491,8 @@ class DatasetEDA:
             )
         ax.set_title("Patients per split")
         ax.set_ylabel("Patients")
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "split_patients.png", dpi=150, bbox_inches="tight")
-        plt.close(fig)
 
-        # --- clips per split ---
-        fig, ax = plt.subplots(figsize=(6, 5))
+        ax = axes[1]
         clip_split = (
             self._clip_df.groupby(["split", "label"])
             .size()
@@ -414,45 +511,27 @@ class DatasetEDA:
             ax.bar_label(
                 container, label_type="center", fontsize=8, color="white", fontweight="bold"
             )
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "split_clips.png", dpi=150, bbox_inches="tight")
-        plt.close(fig)
 
-        # --- frames per split ---
-        fig, ax = plt.subplots(figsize=(6, 5))
-        fr_counts = self.df.groupby("split").size().reindex(present_splits)
-        bars = ax.bar(
-            fr_counts.index,
-            fr_counts.values,
-            color=[colors[s] for s in fr_counts.index],
-            edgecolor="black",
+        ax = axes[2]
+        frame_split.plot(
+            kind="bar", stacked=True, ax=ax, color=["#2ecc71", "#e74c3c"], edgecolor="black"
         )
-        for bar, n in zip(bars, fr_counts.values):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 20,
-                f"{n:,}",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                fontweight="bold",
-            )
         ax.set_title("Frames per split")
         ax.set_ylabel("Frames")
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
+        ax.legend(title="Class")
+        for container in ax.containers:
+            ax.bar_label(
+                container, label_type="center", fontsize=8, color="white", fontweight="bold"
+            )
+
         plt.tight_layout()
-        plt.savefig(self.output_dir / "split_frames.png", dpi=150, bbox_inches="tight")
+        plt.savefig(self.output_dir / "split_overview.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
         # --- class balance per split ---
         fig, ax = plt.subplots(figsize=(6, 5))
-        balance = (
-            self.df.groupby(["split", "label"])
-            .size()
-            .unstack(fill_value=0)
-            .reindex(present_splits)
-            .rename(columns={0: "NonUlcer", 1: "Ulcer"})
-        )
-        balance_pct = balance.div(balance.sum(axis=1), axis=0) * 100
+        balance_pct = frame_split.div(frame_split.sum(axis=1), axis=0) * 100
         balance_pct.plot(
             kind="bar", stacked=True, ax=ax, color=["#2ecc71", "#e74c3c"], edgecolor="black"
         )
@@ -542,12 +621,82 @@ class DatasetEDA:
         plt.savefig(self.output_dir / "sample_images.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
+    def plot_heldout_overview(self) -> None:
+        """Class balance, per-patient frame counts, and clip-length distribution.
+
+        Reproduces (in code) what used to live as static, un-generated images at
+        results/ulcer/cv/heldout_eda.png, no script in this repo's history ever
+        produced them.
+        """
+        if self.heldout_df is None:
+            return
+        df = self.heldout_df
+        clip_df = self._heldout_clip_df
+
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+        ax = axes[0]
+        counts = df["class_name"].value_counts()
+        bars = ax.bar(counts.index, counts.values, color=["#2ecc71", "#e74c3c"], edgecolor="black")
+        for bar, n in zip(bars, counts.values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + max(counts.values) * 0.01,
+                f"{n:,}\n({n / len(df) * 100:.1f}%)",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+            )
+        ax.set_title("Class balance, frames")
+        ax.set_ylabel("Frames")
+
+        ax = axes[1]
+        summary = build_patient_summary(df)
+        x = range(len(summary))
+        ax.bar(x, summary["non_ulcer_frames"], color="#2ecc71", edgecolor="black", label="NonUlcer")
+        ax.bar(
+            x,
+            summary["ulcer_frames"],
+            bottom=summary["non_ulcer_frames"],
+            color="#e74c3c",
+            edgecolor="black",
+            label="Ulcer",
+        )
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(summary["patient_id"], rotation=45, ha="right", fontsize=7)
+        ax.set_ylabel("Frames")
+        ax.set_title("Frames per patient")
+        ax.legend(title="Class")
+
+        ax = axes[2]
+        for label, color, name in [(1, "#e74c3c", "Ulcer"), (0, "#2ecc71", "NonUlcer")]:
+            data = clip_df[clip_df["label"] == label]["n_frames"]
+            ax.hist(data, bins=15, alpha=0.6, color=color, edgecolor="black", label=name)
+        ax.axvline(
+            clip_df["n_frames"].mean(),
+            color="black",
+            linestyle="--",
+            label=f"Mean = {clip_df['n_frames'].mean():.1f}",
+        )
+        ax.set_xlabel("Frames per clip")
+        ax.set_ylabel("Clips")
+        ax.set_title("Frames per clip distribution")
+        ax.legend()
+
+        plt.suptitle("Heldout temporal cohort, EDA", fontsize=13, fontweight="bold")
+        plt.tight_layout()
+        plt.savefig(self.output_dir / "heldout_overview.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
     # ------------------------------------------------------------------
     # Report
     # ------------------------------------------------------------------
 
-    def generate_report(self, stats: dict, img_stats: dict) -> str:
+    def generate_report(
+        self, stats: dict, img_stats: dict, heldout_stats: dict | None = None
+    ) -> str:
         lines: list[str] = []
+        heldout_stats = heldout_stats or {}
         W = 76
 
         def h1(title: str) -> None:
@@ -655,7 +804,7 @@ class DatasetEDA:
                 lines.append(f"      {rare}")
                 lines.append("  Priority order applied: train > test > val")
             else:
-                lines.append("  [OK] No rare strata — all patients split via stratified sampling.")
+                lines.append("  [OK] No rare strata, all patients split via stratified sampling.")
             lines.append("\n  Strata:")
             for stratum, count in sorted(audit.get("strata_counts", {}).items()):
                 flag = "  [rare]" if count < 3 else ""
@@ -678,6 +827,39 @@ class DatasetEDA:
                 f"[{fs.get('min', 0):.1f} - {fs.get('max', 0):.1f}]"
             )
 
+        if heldout_stats:
+            h2("6. HELDOUT TEMPORAL COHORT")
+            p, c, f = heldout_stats["patients"], heldout_stats["clips"], heldout_stats["frames"]
+            lines.append(f"  {'':40} {'Total':>8} {'Ulcer+':>8} {'Ulcer-':>8}")
+            lines.append("  " + "-" * 64)
+            lines.append(
+                f"  {'Patients':<40} {p['total']:>8} {p['ulcer_positive']:>8} {p['ulcer_negative']:>8}"
+            )
+            lines.append(
+                f"  {'Clips':<40} {c['total']:>8} {c['ulcer_positive']:>8} {c['ulcer_negative']:>8}"
+            )
+            lines.append(
+                f"  {'Frames':<40} {f['total']:>8,} {f['ulcer_positive']:>8,} {f['ulcer_negative']:>8,}"
+            )
+            fpc = c["frames_per_clip"]
+            lines.append(
+                f"\n  Frames/clip  mean {fpc['mean']:.1f} +/- {fpc['std']:.1f}"
+                f"   [min {fpc['min']} - max {fpc['max']} | median {fpc['median']:.0f}]"
+            )
+
+            leakage = heldout_stats.get("patient_leakage", {})
+            lines.append("\n  Patient-level leakage vs. train/val/test:")
+            ok = True
+            for split in SPLITS:
+                entry = leakage.get(f"vs_{split}")
+                if entry and entry["count"]:
+                    lines.append(
+                        f"    [!] {entry['count']} patient(s) also in {split}: {entry['examples']}"
+                    )
+                    ok = False
+            if ok:
+                lines.append("    [OK] No patient overlap between heldout and train/val/test.")
+
         lines.append("\n" + "=" * W)
         return "\n".join(lines)
 
@@ -692,6 +874,7 @@ class DatasetEDA:
     ) -> tuple[dict, dict]:
         logger.info("Starting ulcer EDA...")
         self.load_data()
+        self.load_heldout_data()
 
         stats = self.compute_dataset_statistics()
         img_stats = (
@@ -699,6 +882,7 @@ class DatasetEDA:
             if compute_image_stats
             else {}
         )
+        heldout_stats = self.compute_heldout_statistics()
 
         self.plot_class_distribution()
         self.plot_clip_distribution()
@@ -706,22 +890,32 @@ class DatasetEDA:
         if img_stats:
             self.plot_image_statistics()
         self.plot_sample_images()
-
-        plot_frames_per_video(self.df, self.output_dir)
+        plot_frames_per_patient(
+            self.df,
+            self.output_dir,
+            "frames_per_patient.png",
+            "Frames per patient (train/val/test)",
+        )
+        plot_patient_table(
+            self.df,
+            self.output_dir,
+            "patient_table.png",
+            "Per-patient frame counts (train/val/test)",
+        )
+        if self.heldout_df is not None:
+            self.plot_heldout_overview()
+            plot_patient_table(
+                self.heldout_df,
+                self.output_dir,
+                "heldout_patient_table.png",
+                "Heldout set, per-patient frame counts",
+            )
 
         quality = manifest_quality_checks(self.df)
         split_diag = split_diagnostics(self.df)
-        entities, video_summary_df, clip_summary_df = entity_summaries(self.df)
+        entities, _, _ = entity_summaries(self.df)
 
-        if {"split", "label"}.issubset(set(self.df.columns)):
-            split_label_table = pd.crosstab(self.df["split"], self.df["label"], dropna=False)
-            split_label_table.to_csv(self.output_dir / "split_label_table.csv")
-        if not video_summary_df.empty:
-            video_summary_df.to_csv(self.output_dir / "video_summary.csv", index=False)
-        if not clip_summary_df.empty:
-            clip_summary_df.to_csv(self.output_dir / "clip_summary.csv", index=False)
-
-        report = self.generate_report(stats, img_stats)
+        report = self.generate_report(stats, img_stats, heldout_stats)
         print(report)
         (self.output_dir / "eda_report.txt").write_text(report, encoding="utf-8")
 
@@ -729,6 +923,7 @@ class DatasetEDA:
             {
                 "dataset_stats": stats,
                 "image_stats": img_stats,
+                "heldout_stats": heldout_stats,
                 "manifest_quality": quality,
                 "split_diagnostics": split_diag,
                 "entities": entities,
@@ -737,7 +932,7 @@ class DatasetEDA:
         with open(self.output_dir / "statistics.json", "w", encoding="utf-8") as fh:
             json.dump(all_stats, fh, indent=2)
 
-        logger.info("EDA complete — outputs saved to %s", self.output_dir)
+        logger.info("EDA complete, outputs saved to %s", self.output_dir)
         return stats, img_stats
 
 
@@ -755,10 +950,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--splits-dir", type=str, default=str(paths.ulcer_splits_dir))
     parser.add_argument("--output-dir", type=str, default=str(paths.results_eda_dir))
     parser.add_argument(
-        "--excel",
+        "--heldout-manifest",
         type=str,
-        default=str(paths.ulcer_raw_dir / "annotations.xlsx"),
-        help="Path to the ulcer annotation Excel workbook (for annotation duration stats).",
+        default=str(paths.ulcer_heldout_dir / "heldout_temporal_manifest.csv"),
+        help="Path to the heldout temporal manifest (optional, skipped if not found; "
+        "not included in the public repo, see data/ulcer/heldout/README.md).",
     )
     parser.add_argument(
         "--fps",
@@ -791,38 +987,19 @@ def main(args: argparse.Namespace) -> None:
     processed_count = count_images(processed_dir)
     filtrated_count = count_images(filtrated_dir)
 
-    plot_frame_flow(
-        raw_count, processed_count, filtrated_count, output_dir, title="Ulcer Frame Flow"
-    )
-
     pred_df = pd.DataFrame()
     pred_path = filtrated_dir / "predictions.csv"
     if pred_path.exists():
         pred_df = pd.read_csv(pred_path)
-        if "video_id" not in pred_df.columns and "relative_path" in pred_df.columns:
-            pred_df["video_id"] = pred_df["relative_path"].str.split("/").str[1]
 
     plot_filter_outcomes(pred_df, output_dir)
-    plot_video_retention(pred_df, output_dir)
 
-    # ── Preprocessing pipeline report ────────────────────────────────────
-    ann_stats = annotation_duration_ulcer(Path(args.excel))
-    stage_stats = [
-        ("Raw", collect_stage_stats(raw_dir, args.fps)),
-        ("Processed", collect_stage_stats(processed_dir, args.fps)),
-        ("Filtrated", collect_stage_stats(filtrated_dir, args.fps)),
-    ]
-    prep_report = format_pipeline_report(
-        "ULCER PREPROCESSING PIPELINE REPORT",
-        ann_stats,
-        stage_stats,
+    eda = DatasetEDA(
+        splits_dir=args.splits_dir,
+        output_dir=args.output_dir,
         fps=args.fps,
-        label_order=["Ulcer", "NonUlcer"],
+        heldout_manifest_path=args.heldout_manifest,
     )
-    (output_dir / "preprocessing_report.txt").write_text(prep_report, encoding="utf-8")
-    print(prep_report)
-
-    eda = DatasetEDA(splits_dir=args.splits_dir, output_dir=args.output_dir, fps=args.fps)
     eda.run_full_analysis(
         compute_image_stats=args.image_stats,
         image_sample_size=args.image_sample_size,

@@ -1,8 +1,8 @@
 """Patient-level stratification and split helpers.
 
 Shared between:
-  - scripts/ulcer/create_manifest.py  — ulcer train/val/test splits (STRAT_MODES, build_strat_bin)
-  - src/data/dataloader.py            — CV folds and val carve-outs at training time
+  - scripts/ulcer/create_manifest.py - ulcer train/val/test splits (STRAT_MODES, build_strat_bin)
+  - src/data/dataloader.py           - CV folds and val carve-outs at training time
 """
 
 from __future__ import annotations

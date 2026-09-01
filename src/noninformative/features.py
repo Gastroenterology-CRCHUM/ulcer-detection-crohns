@@ -42,7 +42,7 @@ from skimage.feature import graycomatrix, graycoprops
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Optional — only needed for bottleneck features
+# Optional, only needed for bottleneck features
 try:
     import torch
     import torchvision.transforms as T
@@ -106,7 +106,7 @@ GLCM_DIST = [1]
 GLCM_ANGLES = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
 DCT_BLOCK = 15
 
-# Hough circle parameters — tuned for bubble sizes in colonoscopy (10–80 px radius)
+# Hough circle parameters, tuned for bubble sizes in colonoscopy (10–80 px radius)
 _BUBBLE_MIN_RADIUS = 8
 _BUBBLE_MAX_RADIUS = 80
 _BUBBLE_DP = 1.2  # inverse accumulator resolution
@@ -150,7 +150,9 @@ def infer_feature_config(feature_names: list[str]) -> tuple[list[str] | None, bo
     use_bottleneck = any(n.startswith("bn_") for n in names)
     hc_names = {n for n in names if not n.startswith("bn_")}
     use_handcrafted = bool(hc_names)
-    groups = [g for g in ALL_GROUPS if set(FEATURE_GROUPS[g]) <= hc_names] if use_handcrafted else None
+    groups = (
+        [g for g in ALL_GROUPS if set(FEATURE_GROUPS[g]) <= hc_names] if use_handcrafted else None
+    )
     return groups, use_handcrafted, use_bottleneck
 
 
@@ -237,7 +239,7 @@ def _edge_features(hsv, reflection_mask, roi_mask) -> list[float]:
         x, y, w, h, area = stats[lbl]
         if area < 5:
             continue
-        # Scan only this component's bounding box, not the full frame — with
+        # Scan only this component's bounding box, not the full frame, with
         # thousands of components on a textured real frame, an np.argwhere
         # over the whole image per label turns this loop O(labels × pixels).
         # Shift back to full-frame coordinates so fitEllipse's numerics
@@ -333,7 +335,7 @@ def _bubble_features(
     Why not use edge_ratio?
     -----------------------
     ``_edge_features`` removes near-circular edge components (eccentricity < 0.9)
-    on purpose — so edge_ratio suppresses bubble edges rather than counting them.
+    on purpose, so edge_ratio suppresses bubble edges rather than counting them.
     These features operate on the **original** circular structures instead.
 
     Features
@@ -364,7 +366,7 @@ def _bubble_features(
         dp=_BUBBLE_DP,
         minDist=_BUBBLE_MIN_DIST,
         param1=60,  # Canny upper threshold inside HoughCircles
-        param2=25,  # accumulator threshold — lower = more circles detected
+        param2=25,  # accumulator threshold, lower = more circles detected
         minRadius=_BUBBLE_MIN_RADIUS,
         maxRadius=_BUBBLE_MAX_RADIUS,
     )
@@ -549,7 +551,7 @@ def extract_handcrafted_batch(
 
 
 # ---------------------------------------------------------------------------
-# CLI helper — parse --groups robustly
+# CLI helper, parse --groups robustly
 # ---------------------------------------------------------------------------
 
 
@@ -732,7 +734,7 @@ def extract_all(
     """Extract and concatenate hand-crafted + bottleneck (2048) features.
 
     Set ``use_handcrafted=False`` to skip hand-crafted extraction entirely
-    (bottleneck-only) — useful on large datasets, since the hand-crafted
+    (bottleneck-only), useful on large datasets, since the hand-crafted
     groups are comparatively slow to compute.
     """
     if not use_handcrafted and not use_bottleneck:

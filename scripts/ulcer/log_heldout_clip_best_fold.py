@@ -55,9 +55,7 @@ def _get_best_fold_clip_threshold(
     )
     if children.empty:
         return 0.5
-    best_row = children.loc[
-        children["metrics.fold_val_auroc"].fillna(-1).idxmax()
-    ]
+    best_row = children.loc[children["metrics.fold_val_auroc"].fillna(-1).idxmax()]
     return float(best_row.get("metrics.fold_optimal_clip_threshold", 0.5))
 
 
@@ -81,9 +79,7 @@ def process_experiment(
         .reset_index()
     )
 
-    all_runs = client.search_runs(
-        experiment_ids=[exp.experiment_id], max_results=1000
-    )
+    all_runs = client.search_runs(experiment_ids=[exp.experiment_id], max_results=1000)
     parents = [r for r in all_runs if not r.data.tags.get("mlflow.parentRunId")]
     print(f"Found {len(parents)} parent run(s).")
 
@@ -95,14 +91,14 @@ def process_experiment(
         if not force:
             arts = [a.path for a in client.list_artifacts(run_id, "metrics")]
             if "metrics/heldout_clip_ci.json" in arts:
-                print(f"  {model}: heldout_clip_ci.json already present — skip.")
+                print(f"  {model}: heldout_clip_ci.json already present, skip.")
                 continue
 
         # Load best-fold heldout frame probs
         try:
             probs = _download_npy(client, run_id, "predictions/heldout_best_fold_probs.npy")
         except Exception as e:
-            print(f"  {model}: cannot load heldout_best_fold_probs — {e}")
+            print(f"  {model}: cannot load heldout_best_fold_probs, {e}")
             continue
 
         # Aggregate by clip
@@ -113,21 +109,22 @@ def process_experiment(
             .reset_index()
             .merge(df_clip_ref, on="clip_key")
         )
-        clip_probs  = clip_df["prob"].values
+        clip_probs = clip_df["prob"].values
         clip_labels = clip_df["clip_label"].values
 
         # Get clip threshold from best fold child run
-        clip_thresh = _get_best_fold_clip_threshold(
-            client, exp.experiment_id, run_id
-        )
+        clip_thresh = _get_best_fold_clip_threshold(client, exp.experiment_id, run_id)
         clip_preds = (clip_probs >= clip_thresh).astype(int)
 
         print(f"  {model}: {len(clip_df)} clips, thresh={clip_thresh:.3f}")
 
         # Bootstrap CI
         metrics = compute_metrics_with_ci(
-            clip_labels, clip_preds, clip_probs,
-            n_bootstrap=1000, seed=42,
+            clip_labels,
+            clip_preds,
+            clip_probs,
+            n_bootstrap=1000,
+            seed=42,
         )
 
         # Build CI dict (same format as heldout_ci.json)
@@ -146,8 +143,10 @@ def process_experiment(
                 ci.setdefault(name, {})["mean"] = round(float(v), 4)
 
         for name, d in ci.items():
-            print(f"    {name}: {d.get('mean','?'):.3f} "
-                  f"({d.get('lower','?'):.3f}–{d.get('upper','?'):.3f})")
+            print(
+                f"    {name}: {d.get('mean', '?'):.3f} "
+                f"({d.get('lower', '?'):.3f}–{d.get('upper', '?'):.3f})"
+            )
 
         if dry_run:
             continue
@@ -161,10 +160,9 @@ def process_experiment(
                 mlflow.log_artifact(path, artifact_path="metrics")
 
             # Log scalar metrics
-            mlflow.log_metrics({
-                f"heldout_clip__{name}_mean": d["mean"]
-                for name, d in ci.items() if "mean" in d
-            })
+            mlflow.log_metrics(
+                {f"heldout_clip__{name}_mean": d["mean"] for name, d in ci.items() if "mean" in d}
+            )
             mlflow.log_metric("heldout_clip_n_clips", len(clip_df))
 
         print(f"    → logged heldout_clip_ci.json")
@@ -174,14 +172,17 @@ def process_experiment(
 
 def build_parser() -> argparse.ArgumentParser:
     cfg = get_default_paths()
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--experiment", default="ulcer_detection")
-    p.add_argument("--manifest",
-                   default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"))
+    p.add_argument("--manifest", default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"))
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--force", action="store_true",
-                   help="Re-compute even if heldout_clip_ci.json already present")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-compute even if heldout_clip_ci.json already present",
+    )
     return p
 
 
@@ -189,5 +190,4 @@ if __name__ == "__main__":
     args = build_parser().parse_args()
     if args.dry_run:
         print("[DRY RUN]")
-    process_experiment(args.experiment, args.manifest,
-                       dry_run=args.dry_run, force=args.force)
+    process_experiment(args.experiment, args.manifest, dry_run=args.dry_run, force=args.force)

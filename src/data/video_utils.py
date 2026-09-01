@@ -52,7 +52,7 @@ def detect_green_rectangle(image: np.ndarray) -> str:
     """
     height, width, _ = image.shape
     square_size = min(height, width) // 20
-    roi = image[0:square_size, width - square_size: width]
+    roi = image[0:square_size, width - square_size : width]
 
     mean_blue = np.mean(roi[:, :, 0])
     mean_green = np.mean(roi[:, :, 1])
@@ -94,7 +94,7 @@ FUJI_CROP = {"y1": 60, "y2_bottom": 60, "x1": 140, "x2_right": 690}
 
 
 def crop_platform(frame: np.ndarray, platform: str) -> np.ndarray:
-    """Lateral/vertical crop removing the endoscope's UI panel — Fuji or Olympus geometry."""
+    """Lateral/vertical crop removing the endoscope's UI panel, Fuji or Olympus geometry."""
     h, w = frame.shape[:2]
     if platform == "fuji":
         y1 = min(max(FUJI_CROP["y1"], 0), h)

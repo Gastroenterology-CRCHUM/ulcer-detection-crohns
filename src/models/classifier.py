@@ -44,7 +44,7 @@ class _HFViTBackbone(nn.Module):
     """Thin wrapper around a HuggingFace or timm ViT that returns the CLS pooled output.
 
     Exposes a `.head = nn.Identity()` sentinel so that _replace_last_layer detects
-    it as an Identity-headed model and wraps it with _HeadedBackbone — identical
+    it as an Identity-headed model and wraps it with _HeadedBackbone, identical
     code path as DINO ViT models.
 
     model_id starting with "timm/" → loaded via timm (hf_hub prefix added automatically).
@@ -306,7 +306,7 @@ class ClassifierModel(nn.Module):
             N  → first N blocks / layer-groups frozen
         """
         if num_layers == 0:
-            logger.info("No layers frozen — full fine-tuning.")
+            logger.info("No layers frozen, full fine-tuning.")
             return
 
         is_headed = isinstance(self.base_model, _HeadedBackbone)
@@ -319,7 +319,7 @@ class ClassifierModel(nn.Module):
             for name, param in self.base_model.named_parameters():
                 if not name.startswith(head_prefix):
                     param.requires_grad = False
-            logger.info("Backbone fully frozen — only classification head is trainable.")
+            logger.info("Backbone fully frozen, only classification head is trainable.")
             return
 
         child_map = dict(arch.named_children())
@@ -350,7 +350,7 @@ class ClassifierModel(nn.Module):
             logger.info(f"ViT: frozen {n}/{len(vit_blocks)} transformer blocks.")
 
         else:
-            logger.warning(f"Partial freezing not implemented for '{self.name}' — skipped.")
+            logger.warning(f"Partial freezing not implemented for '{self.name}', skipped.")
 
     @property
     def unwrapped_backbone(self) -> nn.Module:
@@ -407,7 +407,7 @@ class ClassifierModel(nn.Module):
             for i in range(n_classes):
                 cnt = int(counts.get(i, 0))
                 if cnt == 0:
-                    logger.warning(f"Class {i}: 0 training samples — assigning weight 1.0.")
+                    logger.warning(f"Class {i}: 0 training samples, assigning weight 1.0.")
                     weights.append(1.0)
                 else:
                     w = n / (n_classes * cnt)
@@ -472,7 +472,7 @@ class ClassifierModel(nn.Module):
         """
         Full training loop with early stopping, LR scheduling and AMP.
 
-        Criteria — three separate roles, no mixing:
+        Criteria, three separate roles, no mixing:
             val_loss          → scheduler only (smooth, differentiable)
             AUROC (or F1@0.5) → checkpoint selection + early stopping (threshold-free)
             val sweep (once)  → threshold locked after training, NOT during
@@ -480,7 +480,7 @@ class ClassifierModel(nn.Module):
         Threshold methodology:
             The decision threshold is determined exactly once, after training ends,
             by sweeping on the val set at the best-checkpoint model state.  It is
-            never updated during the training loop — AUROC-based checkpointing is
+            never updated during the training loop, AUROC-based checkpointing is
             deliberately threshold-independent so that model selection and
             operating-point selection remain orthogonal.
 
@@ -521,13 +521,13 @@ class ClassifierModel(nn.Module):
         patience = es_patience if es_patience is not None else self.es_patience
         best_val_f1 = -1.0
         best_val_auroc = float("nan")
-        best_checkpoint_score = -1.0  # AUROC when valid, F1@0.5 as fallback — for comparison only
+        best_checkpoint_score = -1.0  # AUROC when valid, F1@0.5 as fallback, for comparison only
         epochs_no_improve = 0
         best_probs: np.ndarray | None = None
         best_labels: np.ndarray | None = None
         _interrupted = False
         epoch = 0
-        # Fixed monitoring threshold — used only for per-epoch F1 display/logging.
+        # Fixed monitoring threshold, used only for per-epoch F1 display/logging.
         # The real threshold is locked ONCE after training (see below).
         monitor_threshold = self.threshold if self.number_classes == 1 else 0.5
 
@@ -559,7 +559,7 @@ class ClassifierModel(nn.Module):
                     break
 
                 # ── Checkpoint criterion: AUROC when valid, F1@0.5 as fallback ─
-                # AUROC is threshold-independent — model selection stays orthogonal
+                # AUROC is threshold-independent, model selection stays orthogonal
                 # to threshold selection (which happens once after training ends).
                 checkpoint_score = auroc if not np.isnan(auroc) else f1
                 criterion_label = "AUROC" if not np.isnan(auroc) else "F1@0.5"
@@ -600,7 +600,7 @@ class ClassifierModel(nn.Module):
                     )
                     logger.info(
                         f"  -> Best {criterion_label}={checkpoint_score:.4f} "
-                        f"({extra}) — checkpoint saved."
+                        f"({extra}), checkpoint saved."
                     )
                     epochs_no_improve = 0
                 else:
@@ -615,7 +615,7 @@ class ClassifierModel(nn.Module):
                         break
 
         except KeyboardInterrupt:
-            logger.warning(f"Training interrupted at epoch {epoch} — restoring best checkpoint.")
+            logger.warning(f"Training interrupted at epoch {epoch}, restoring best checkpoint.")
             _interrupted = True
 
         # ── Restore best checkpoint ───────────────────────────────────────
@@ -638,7 +638,7 @@ class ClassifierModel(nn.Module):
         scaler: torch.cuda.amp.GradScaler,
         amp_enabled: bool,
     ) -> tuple[float, float]:
-        """Single training epoch — used by both ``train_one_epoch`` and ``fit``."""
+        """Single training epoch, used by both ``train_one_epoch`` and ``fit``."""
         self.base_model.train()
         total_loss, correct, total = 0.0, 0, 0
 
@@ -785,10 +785,10 @@ class ClassifierModel(nn.Module):
                 torch.load(checkpoint_path, map_location=device, weights_only=True)
             )
             logger.info(
-                f"Best weights restored — val F1: {best_val_f1:.4f} val auroc:{best_val_auroc:.4f}"
+                f"Best weights restored, val F1: {best_val_f1:.4f} val auroc:{best_val_auroc:.4f}"
             )
         else:
-            logger.warning("No checkpoint found — returning last-epoch weights.")
+            logger.warning("No checkpoint found, returning last-epoch weights.")
 
     def test_evaluation(self, test_loader, device, threshold, aggregate_by_clip=True):
         self.base_model.to(device)
@@ -803,10 +803,11 @@ class ClassifierModel(nn.Module):
             except RuntimeError as exc:
                 if "worker" in str(exc).lower() or "exited unexpectedly" in str(exc):
                     logger.warning(
-                        "DataLoader workers crashed — retrying with num_workers=0. "
+                        "DataLoader workers crashed, retrying with num_workers=0. "
                         f"Original error: {exc}"
                     )
                     from torch.utils.data import DataLoader
+
                     safe_loader = DataLoader(
                         loader.dataset,
                         batch_size=loader.batch_size,
@@ -820,7 +821,9 @@ class ClassifierModel(nn.Module):
                     raise
 
         with torch.no_grad():
-            for batch in tqdm(_iter_loader(test_loader), desc="Testing", leave=False, total=len(test_loader)):
+            for batch in tqdm(
+                _iter_loader(test_loader), desc="Testing", leave=False, total=len(test_loader)
+            ):
                 images, labels = batch[0], batch[1]
                 clip_id = batch[2] if len(batch) > 2 else None
                 frame_id = batch[3] if len(batch) > 3 else None
@@ -858,7 +861,7 @@ class ClassifierModel(nn.Module):
         elif self.number_classes == 1:
             y_prob_for_metrics = y_prob  # already 1D
         else:
-            y_prob_for_metrics = y_prob  # (N, C) matrix — OVR/macro AUROC in metrics.py
+            y_prob_for_metrics = y_prob  # (N, C) matrix, OVR/macro AUROC in metrics.py
 
         metrics = compute_metrics_with_ci(y_true, y_pred, y_prob_for_metrics, seed=self.random_seed)
 
@@ -894,7 +897,7 @@ class ClassifierModel(nn.Module):
 
         if aggregate_by_clip and clip_ids and is_binary:
             if len(clip_ids) != len(y_true):
-                logger.warning("clip_ids length mismatch — skipping clip aggregation.")
+                logger.warning("clip_ids length mismatch, skipping clip aggregation.")
             else:
                 results["clip_threshold"] = self.clip_threshold
                 results = self._add_clip_level_results(
@@ -907,29 +910,31 @@ class ClassifierModel(nn.Module):
                 )
         elif aggregate_by_clip and clip_ids and not is_binary:
             if len(clip_ids) != len(y_true):
-                logger.warning("clip_ids length mismatch — skipping clip aggregation.")
+                logger.warning("clip_ids length mismatch, skipping clip aggregation.")
             else:
                 # Multiclass clip aggregation: average per-class probs across frames,
                 # then take argmax as clip prediction.
                 from collections import defaultdict as _dd
+
                 clip_data: dict = _dd(lambda: {"probs": [], "labels": []})
                 for i, cid in enumerate(clip_ids):
-                    clip_data[cid]["probs"].append(y_prob[i])      # shape (n_classes,)
+                    clip_data[cid]["probs"].append(y_prob[i])  # shape (n_classes,)
                     clip_data[cid]["labels"].append(int(y_true[i]))
 
                 clip_ids_agg, clip_y_true, clip_y_pred, clip_y_prob = [], [], [], []
                 for cid, data in clip_data.items():
-                    mean_prob = np.mean(data["probs"], axis=0)      # (n_classes,)
+                    mean_prob = np.mean(data["probs"], axis=0)  # (n_classes,)
                     clip_y_pred.append(int(np.argmax(mean_prob)))
                     clip_y_prob.append(mean_prob)
                     # Modal label for the clip
                     from scipy import stats as _stats
+
                     clip_y_true.append(int(_stats.mode(data["labels"], keepdims=True).mode[0]))
                     clip_ids_agg.append(cid)
 
                 clip_y_true = np.array(clip_y_true)
                 clip_y_pred = np.array(clip_y_pred)
-                clip_y_prob = np.array(clip_y_prob)   # (n_clips, n_classes)
+                clip_y_prob = np.array(clip_y_prob)  # (n_clips, n_classes)
 
                 clip_metrics = compute_metrics_with_ci(
                     clip_y_true, clip_y_pred, clip_y_prob, seed=self.random_seed

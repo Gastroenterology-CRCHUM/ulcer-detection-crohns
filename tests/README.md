@@ -12,7 +12,7 @@ Current status: 381 tests, all passing.
 pytest
 ```
 
-Default output groups by file — one filename line, then one dot per test in
+Default output groups by file, one filename line, then one dot per test in
 it (not a per-test listing). Use `-v`/`--verbose` for the full per-test
 listing, or `-q` for a plain progress bar with no filenames.
 
@@ -66,7 +66,7 @@ pytest --cov=src --cov-report=html
 
 **Models / training**
 - `test_training_trainer.py`: Checkpoint discovery and loading
-- `test_training_run_modes.py`: `PipelineDef`, pure-logic branch of `_compute_fold_metrics`, explainability fallback — see note below on what's *not* covered here
+- `test_training_run_modes.py`: `PipelineDef`, pure-logic branch of `_compute_fold_metrics`, explainability fallback, see note below on what's *not* covered here
 - `test_noninformative_model.py`: Non-informative-frame RF classifier
 
 **Scripts**
@@ -135,7 +135,7 @@ def test_function_with_multiple_inputs(input, expected):
 
 ## Continuous Integration
 
-No CI is configured in this repository yet — `.github/workflows/` doesn't
+No CI is configured in this repository yet, `.github/workflows/` doesn't
 exist. Tests are run locally (`pytest`) before pushing. If CI gets set up
 later, update this section to point at the workflow file.
 

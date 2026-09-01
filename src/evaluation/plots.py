@@ -1,7 +1,7 @@
 """
 src/evaluation/plots.py
 -----------------------
-Pure visualisation — no MLflow, no file management, no metric computation.
+Pure visualisation, no MLflow, no file management, no metric computation.
 
 Every function returns the matplotlib Figure so the caller decides
 what to do with it (save, log to MLflow, display in a notebook…).
@@ -43,7 +43,7 @@ def plot_roc_curve(
         name:      Model name.
         labels:    Ground-truth binary labels.
         probs:     Predicted probabilities for the positive class.
-                   Accepts shape (N,) or (N, 2) — second column is used.
+                   Accepts shape (N,) or (N, 2), second column is used.
         threshold: If provided, marks the closest point on the curve in red.
         title:     Figure title.
 
@@ -61,7 +61,7 @@ def plot_roc_curve(
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray")
     ax.set_xlabel("1 − Specificity")
     ax.set_ylabel("Sensitivity")
-    ax.set_title(f"ROC Curve — Ulcer detection with {name}")
+    ax.set_title(f"ROC Curve, Ulcer detection with {name}")
     ax.legend(loc="lower right")
     ax.grid(alpha=0.3)
 
@@ -89,7 +89,7 @@ def plot_confusion_matrix(
     cm: np.ndarray,
     threshold: float,
     class_names: tuple[str, str] = ("No ulcer", "Ulcer"),
-    title: str = "Confusion matrix — Ulcer detection",
+    title: str = "Confusion matrix, Ulcer detection",
 ) -> plt.Figure:
     """Plot a colour-coded normalised confusion matrix.
 
@@ -195,16 +195,16 @@ def plot_confusion_matrix_multiclass(
 
 def plot_roc_curves(
     roc_data: list[dict],
-    title: str = "ROC curves — Ulcer detection",
+    title: str = "ROC curves, Ulcer detection",
 ) -> plt.Figure:
     """Overlay ROC curves for several models on the same axes.
 
     Args:
         roc_data: List of dicts, each with keys:
-                    "name"  (str)   — label shown in the legend,
-                    "fpr"   (array) — false positive rates,
-                    "tpr"   (array) — true positive rates,
-                    "auc"   (float) — AUROC value.
+                    "name"  (str)   - label shown in the legend,
+                    "fpr"   (array) - false positive rates,
+                    "tpr"   (array) - true positive rates,
+                    "auc"   (float) - AUROC value.
         title:    Figure title.
 
     Returns:
@@ -394,7 +394,7 @@ def plot_delong_heatmap(
 def plot_learning_curves(
     results_df: pd.DataFrame,
     metric: str = "f1",
-    title: str = "Data efficiency — learning curves",
+    title: str = "Data efficiency, learning curves",
 ) -> plt.Figure:
 
     head_types = results_df["head_type"].unique()

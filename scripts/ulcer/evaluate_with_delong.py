@@ -162,12 +162,12 @@ def main(
 
     df_metrics = _keep_display_cols(pd.DataFrame(rows))
     df_metrics.to_csv(OUTPUT_DIR / "model_comparison.csv", index=False)
-    print("\nFrame-level metrics — mean (95% CI)")
+    print("\nFrame-level metrics, mean (95% CI)")
     print(df_metrics.to_string(index=False))
 
     # DeLong pairwise test
     print("\n" + "=" * 60)
-    print("DELONG TEST — Pairwise AUROC comparisons")
+    print("DELONG TEST, Pairwise AUROC comparisons")
     print("=" * 60)
 
     p_matrix, df_delong = delong_matrix(

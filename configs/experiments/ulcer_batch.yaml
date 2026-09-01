@@ -1,10 +1,10 @@
-# Experiment plan — 9 model configurations reported in the paper:
+# Experiment plan: 9 model configurations reported in the paper:
 # "Domain-Specific Foundation Models Versus Conventional Deep Learning
 #  for Automated Ulcer Detection in Crohn's Disease"
 # Berndt*, Mashayekhi* et al.
 #
 # All runs use 5-fold patient-stratified cross-validation.
-# Pass --heldout-manifest data/ulcer/splits/heldout_temporal_manifest.csv
+# Pass --heldout-manifest data/ulcer/heldout/heldout_temporal_manifest.csv
 # to evaluate each fold's model on the temporal held-out test set.
 #
 # Shared defaults: epochs=100 (early stopping patience=10), batch_size=64,
@@ -13,7 +13,7 @@
 # Usage:
 #   python scripts/run_experiments.py \
 #       --plan configs/experiments/ulcer_batch.yaml \
-#       --heldout-manifest data/ulcer/splits/heldout_temporal_manifest.csv
+#       --heldout-manifest data/ulcer/heldout/heldout_temporal_manifest.csv
 
 defaults:
   mode: cv
@@ -28,32 +28,32 @@ defaults:
 
 runs:
   # ── ResNet-50 ─────────────────────────────────────────────────────────
-  - model: resnet50_imagenet_sup    # Supervised / ImageNet-1K
+  - model: resnet50_imagenet_sup # Supervised / ImageNet-1K
     lr: 1.0e-4
 
-  - model: resnet50_imagenet        # DINOv1 / ImageNet
+  - model: resnet50_imagenet # DINOv1 / ImageNet
     lr: 1.0e-5
 
-  - model: resnet50_gastronet       # DINOv1 / GastroNet-5M
+  - model: resnet50_gastronet # DINOv1 / GastroNet-5M
     lr: 1.0e-6
 
   # ── EfficientNet-B0 ───────────────────────────────────────────────────
-  - model: efficientnetb0           # Supervised / ImageNet-1K
+  - model: efficientnetb0 # Supervised / ImageNet-1K
     lr: 3.0e-5
 
   # ── ViT-Base/16 ───────────────────────────────────────────────────────
-  - model: vitb16_imagenet_sup      # Supervised / ImageNet-1K
+  - model: vitb16_imagenet_sup # Supervised / ImageNet-1K
     lr: 1.0e-4
 
-  - model: vitb16_imagenet          # DINOv1 / ImageNet
+  - model: vitb16_imagenet # DINOv1 / ImageNet
     lr: 1.0e-6
 
   # ── ViT-Small/16 ──────────────────────────────────────────────────────
-  - model: vits16_imagenet_hf       # Supervised / ImageNet-1K (timm AugReg)
+  - model: vits16_imagenet_hf # Supervised / ImageNet-1K (timm AugReg)
     lr: 1.0e-5
 
-  - model: vits16_imagenet          # DINOv1 / ImageNet
+  - model: vits16_imagenet # DINOv1 / ImageNet
     lr: 1.0e-6
 
-  - model: vits16_gastronet         # DINOv1 / GastroNet-5M
+  - model: vits16_gastronet # DINOv1 / GastroNet-5M
     lr: 1.0e-6

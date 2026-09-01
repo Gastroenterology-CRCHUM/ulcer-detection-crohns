@@ -1,4 +1,4 @@
-"""Shared ROI preprocessing — platform-aware crop and octagonal mask.
+"""Shared ROI preprocessing, platform-aware crop and octagonal mask.
 
 Handles both Fuji and Olympus colonoscopy platforms. Builds ONE strict
 octagonal reference mask from an Olympus frame and applies it to all frames.
@@ -51,8 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Resize output to a square of this size after crop/mask (e.g. 224). "
-             "Saves disk space and speeds up DataLoader when the model input "
-             "is smaller than TARGET_HW. No effect if None (default).",
+        "Saves disk space and speeds up DataLoader when the model input "
+        "is smaller than TARGET_HW. No effect if None (default).",
     )
     parser.add_argument(
         "--incremental",
@@ -62,8 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-crop",
         action="store_true",
-        help="Skip ROI crop and octagonal masking — just copy/resize frames. "
-             "Use for datasets without endoscope border (e.g. LIMUC).",
+        help="Skip ROI crop and octagonal masking, just copy/resize frames. "
+        "Use for datasets without endoscope border (e.g. LIMUC).",
     )
     parser.add_argument(
         "--convert-bmp",
@@ -214,7 +214,7 @@ def preprocess_frames(
         (e.g. the informative pipeline) where the directory layout does not
         carry video-level metadata.
     skip_crop:
-        Skip ROI crop and octagonal masking entirely — frames are only
+        Skip ROI crop and octagonal masking entirely, frames are only
         resized to TARGET_HW.  Use for datasets without endoscope border
         (e.g. LIMUC).
     convert_bmp:
@@ -230,7 +230,7 @@ def preprocess_frames(
     target_h, target_w = TARGET_HW
 
     if not skip_crop:
-        # Platform detection — skip when a default is forced
+        # Platform detection, skip when a default is forced
         platform_map: dict[str, str] = (
             {} if default_platform is not None else _build_platform_map(image_paths, raw_dir)
         )
@@ -238,7 +238,9 @@ def preprocess_frames(
         shared_mask = _build_shared_olympus_mask(image_paths, raw_dir, platform_map)
 
         if shared_mask.shape[:2] != TARGET_HW:
-            shared_mask = cv2.resize(shared_mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+            shared_mask = cv2.resize(
+                shared_mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST
+            )
 
         if olympus_mask_path is not None:
             olympus_mask_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,7 +272,7 @@ def preprocess_frames(
             continue
 
         if skip_crop:
-            # No crop or mask — just resize
+            # No crop or mask, just resize
             processed = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
         else:
             if default_platform is not None:
@@ -288,7 +290,9 @@ def preprocess_frames(
                 continue
 
             if processed.shape[:2] != TARGET_HW:
-                processed = cv2.resize(processed, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                processed = cv2.resize(
+                    processed, (target_w, target_h), interpolation=cv2.INTER_LINEAR
+                )
 
             mask = shared_mask
             if mask.shape[:2] != processed.shape[:2]:
@@ -298,7 +302,9 @@ def preprocess_frames(
             processed = cv2.bitwise_and(processed, processed, mask=mask)
 
         if target_size is not None and processed.shape[:2] != (target_size, target_size):
-            processed = cv2.resize(processed, (target_size, target_size), interpolation=cv2.INTER_LINEAR)
+            processed = cv2.resize(
+                processed, (target_size, target_size), interpolation=cv2.INTER_LINEAR
+            )
 
         if dst_path.suffix.lower() == ".png":
             ok = cv2.imwrite(str(dst_path), processed)

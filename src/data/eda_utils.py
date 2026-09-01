@@ -39,34 +39,8 @@ def count_images(root: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Frame-flow and filtering
+# Filtering
 # ---------------------------------------------------------------------------
-
-
-def plot_frame_flow(
-    raw_count: int,
-    processed_count: int,
-    filtrated_count: int,
-    output_dir: Path,
-    title: str = "Frame Flow",
-) -> None:
-    sns.set_palette("Set2")
-    names = ["Raw", "Processed", "Filtrated"]
-    values = [raw_count, processed_count, filtrated_count]
-    fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.bar(names, values, edgecolor="black")
-    for bar, value in zip(bars, values):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + max(values) * 0.01,
-            f"{value:,}",
-            ha="center",
-        )
-    ax.set_title(title)
-    ax.set_ylabel("Number of frames")
-    plt.tight_layout()
-    plt.savefig(output_dir / "frame_flow.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
 
 
 def plot_filter_outcomes(pred_df: pd.DataFrame, output_dir: Path) -> None:
@@ -75,12 +49,10 @@ def plot_filter_outcomes(pred_df: pd.DataFrame, output_dir: Path) -> None:
     counts = (
         pred_df["category"]
         .value_counts()
-        .reindex(["informative", "non_informative", "uncertain"], fill_value=0)
+        .reindex(["informative", "non_informative"], fill_value=0)
     )
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.bar(
-        counts.index, counts.values, color=["#2ecc71", "#e74c3c", "#f39c12"], edgecolor="black"
-    )
+    bars = ax.bar(counts.index, counts.values, color=["#2ecc71", "#e74c3c"], edgecolor="black")
     total = max(counts.sum(), 1)
     for bar, value in zip(bars, counts.values):
         ax.text(
@@ -93,29 +65,6 @@ def plot_filter_outcomes(pred_df: pd.DataFrame, output_dir: Path) -> None:
     ax.set_ylabel("Frames")
     plt.tight_layout()
     plt.savefig(output_dir / "filter_outcomes.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def plot_video_retention(pred_df: pd.DataFrame, output_dir: Path) -> None:
-    if pred_df.empty or "video_id" not in pred_df.columns:
-        return
-    summary = pred_df.groupby("video_id")["category"].value_counts().unstack(fill_value=0)
-    for col in ("informative", "non_informative", "uncertain"):
-        if col not in summary.columns:
-            summary[col] = 0
-    summary = summary[["informative", "non_informative", "uncertain"]].copy()
-    summary["total"] = summary.sum(axis=1)
-    summary["kept_ratio"] = summary["informative"] / summary["total"].clip(lower=1)
-    summary = summary.sort_values("kept_ratio", ascending=False)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.bar(summary.index, summary["kept_ratio"].values, color="#2ecc71", edgecolor="black")
-    ax.set_title("Per-video informative retention ratio")
-    ax.set_ylabel("Kept ratio")
-    ax.set_xlabel("Video")
-    ax.set_ylim(0, 1)
-    ax.tick_params(axis="x", rotation=45)
-    plt.tight_layout()
-    plt.savefig(output_dir / "video_retention_ratio.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -208,23 +157,6 @@ def plot_split_label_distribution(manifest: pd.DataFrame, output_dir: Path) -> N
     plt.close(fig)
 
 
-def plot_frames_per_video(manifest: pd.DataFrame, output_dir: Path, top_n: int = 20) -> None:
-    if manifest.empty or "video_id" not in manifest.columns:
-        return
-    counts = manifest["video_id"].value_counts().head(top_n)
-    if counts.empty:
-        return
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.bar(counts.index.astype(str), counts.values, color="#3498db", edgecolor="black")
-    ax.set_title(f"Top {top_n} videos by frame count")
-    ax.set_ylabel("Frames")
-    ax.set_xlabel("Video ID")
-    ax.tick_params(axis="x", rotation=45)
-    plt.tight_layout()
-    plt.savefig(output_dir / "top_videos_frame_count.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
 def plot_frames_per_clip(manifest: pd.DataFrame, output_dir: Path) -> None:
     if manifest.empty:
         return
@@ -247,6 +179,86 @@ def plot_frames_per_clip(manifest: pd.DataFrame, output_dir: Path) -> None:
     ax.set_ylabel("Number of clips")
     plt.tight_layout()
     plt.savefig(output_dir / "frames_per_clip_hist.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Patient-level plots
+# ---------------------------------------------------------------------------
+
+
+def build_patient_summary(manifest: pd.DataFrame) -> pd.DataFrame:
+    """Per-patient frame/clip counts and class breakdown, sorted by total frames desc."""
+    agg: dict = {
+        "total_frames": ("label", "count"),
+        "ulcer_frames": ("label", "sum"),
+        "n_clips": ("clip_key", "nunique"),
+    }
+    if "split" in manifest.columns:
+        agg["split"] = ("split", "first")
+    summary = manifest.groupby("patient_id").agg(**agg).reset_index()
+    summary["non_ulcer_frames"] = summary["total_frames"] - summary["ulcer_frames"]
+    summary["ulcer_pct"] = (summary["ulcer_frames"] / summary["total_frames"] * 100).round(1)
+    return summary.sort_values("total_frames", ascending=False).reset_index(drop=True)
+
+
+def plot_frames_per_patient(
+    manifest: pd.DataFrame, output_dir: Path, filename: str, title: str
+) -> None:
+    if manifest.empty:
+        return
+    summary = build_patient_summary(manifest)
+    x = range(len(summary))
+    fig, ax = plt.subplots(figsize=(max(10, len(summary) * 0.45), 6))
+    ax.bar(x, summary["non_ulcer_frames"], color="#2ecc71", edgecolor="black", label="NonUlcer")
+    ax.bar(
+        x,
+        summary["ulcer_frames"],
+        bottom=summary["non_ulcer_frames"],
+        color="#e74c3c",
+        edgecolor="black",
+        label="Ulcer",
+    )
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(summary["patient_id"], rotation=45, ha="right", fontsize=8)
+    ax.set_ylabel("Frames")
+    ax.set_title(title)
+    ax.legend(title="Class")
+    plt.tight_layout()
+    plt.savefig(output_dir / filename, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_patient_table(manifest: pd.DataFrame, output_dir: Path, filename: str, title: str) -> None:
+    if manifest.empty:
+        return
+    summary = build_patient_summary(manifest)
+
+    headers = ["Patient"]
+    col_keys = ["patient_id"]
+    if "split" in summary.columns and summary["split"].nunique() > 1:
+        headers.append("Split")
+        col_keys.append("split")
+    headers += ["Total frames", "Ulcer", "Clips", "Non-ulcer", "Ulcer %"]
+    col_keys += ["total_frames", "ulcer_frames", "n_clips", "non_ulcer_frames", "ulcer_pct"]
+
+    cell_text = [[str(row[k]) for k in col_keys] for _, row in summary.iterrows()]
+
+    fig, ax = plt.subplots(figsize=(2 * len(headers), 0.35 * len(summary) + 1.2))
+    ax.axis("off")
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=20)
+    table = ax.table(cellText=cell_text, colLabels=headers, cellLoc="center", loc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.4)
+    for (row, _col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_facecolor("#2c3e50")
+            cell.set_text_props(color="white", fontweight="bold")
+        elif row % 2 == 0:
+            cell.set_facecolor("#f2f2f2")
+    plt.tight_layout()
+    plt.savefig(output_dir / filename, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 

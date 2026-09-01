@@ -5,7 +5,7 @@ DataLoader factory supporting two training strategies:
               For fold i: patients in fold i → val loader,
                           all other train patients → train loader.
               Set use_full_trainset=True to merge manifest val into train
-              (recommended for CV — maximises available data).
+              (recommended for CV, maximises available data).
 
     "split" → Classic single train/val split.
               Uses manifest 'val' rows if present, otherwise carves
@@ -75,7 +75,7 @@ def _sampling_train(
       1. Class ratio (modal label per clip) from the full train set.
       2. Frame-count distribution per class (tertile bins: few / medium / many).
 
-    Works on the frame-level manifest — groups by clip_key, samples clips,
+    Works on the frame-level manifest, groups by clip_key, samples clips,
     then returns all frames belonging to sampled clips.
     Supports binary and multiclass labels.
     """
@@ -90,7 +90,7 @@ def _sampling_train(
     clip_df = clip_df.rename(columns={"_label_val": label_col})
 
     n_clips_total = len(clip_df)
-    assert n_clips_total > 0, "clip_df is empty — check clip_key construction."
+    assert n_clips_total > 0, "clip_df is empty, check clip_key construction."
 
     # ── 2. Frame-count tertile bins (computed on full train set) ───────────
     clip_df["frame_bin"] = pd.Categorical(
@@ -119,7 +119,7 @@ def _sampling_train(
             "Check n_frames column for NaN or zero values."
         )
 
-    # ── 4. Stratified sampling — proportional allocation ───────────────────
+    # ── 4. Stratified sampling, proportional allocation ───────────────────
     # Compute global target first, then distribute across strata.
     # Per-stratum max(1, ...) inflates small ratios when n_strata > n_target.
     rng = np.random.default_rng(random_seed)
@@ -387,7 +387,7 @@ def get_split_loaders(
         all_train = manifest[manifest["split"] == "train"].copy()
         train_df, val_df = assign_val_split(all_train, val_ratio=val_ratio, random_seed=random_seed)
         print(
-            "[!] Validation split not found in manifest — splitting train randomly into train/val."
+            "[!] Validation split not found in manifest, splitting train randomly into train/val."
         )
 
     if subset_ratio < 1.0:
@@ -457,7 +457,7 @@ def get_val_loader(
     equalize: bool = True,
     random_seed: int = 42,
 ) -> DataLoader:
-    """Fixed val loader — independent of any subset_ratio."""
+    """Fixed val loader, independent of any subset_ratio."""
     manifest = pd.read_csv(manifest_path)
     if "val" in manifest["split"].values:
         val_df = manifest[manifest["split"] == "val"].copy()
@@ -465,7 +465,7 @@ def get_val_loader(
         all_train = manifest[manifest["split"] == "train"].copy()
         _, val_df = assign_val_split(all_train, val_ratio=val_ratio, random_seed=random_seed)
         print(
-            "[!] Validation split not found in manifest — splitting train randomly into train/val."
+            "[!] Validation split not found in manifest, splitting train randomly into train/val."
         )
     transform = get_transforms(img_size, is_training=False, equalize=equalize)
     return _make_loader(
@@ -485,7 +485,7 @@ def get_heldout_loader(
 ) -> DataLoader:
     """Return a DataLoader for an external held-out test manifest.
 
-    Unlike get_test_loader(), this does not require a split column — all rows
+    Unlike get_test_loader(), this does not require a split column, all rows
     are included. If a split column is present and contains "test" rows, only
     those are used; otherwise the full manifest is loaded. Use this for a
     manifest that was never part of any train/val/test split assignment.

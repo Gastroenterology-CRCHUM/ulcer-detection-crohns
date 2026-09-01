@@ -20,7 +20,7 @@ def load_best_checkpoint(model: ClassifierModel, device: torch.device) -> Path:
     """
     Load the most recent best.pt checkpoint for *model*.
 
-    Used only when ``CONFIG_LAUNCH["train"] = False`` — in all other cases
+    Used only when ``CONFIG_LAUNCH["train"] = False``, in all other cases
     ``model.fit()`` returns ``checkpoint_dir`` directly and restores the
     weights before returning, so this function is not needed.
 

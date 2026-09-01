@@ -25,13 +25,12 @@ data/
 │   ├── splits/                    # Train/val/test manifests (main cohort)
 │   │   ├── dataset_manifest.csv
 │   │   └── split_info.json
-│   └── heldout/                   # Temporal held-out test cohort — not a split
-│       │                          # of the main cohort above; a separate patient
+│   └── heldout/                   # Temporal held-out test cohort, a separate patient
 │       │                          # cohort acquired after the training cutoff.
 │       ├── README.md
-│       ├── Ulcer/, NonUlcer/      # canonical set: ROI-cropped, unfiltered (← not included, IRB)
-│       ├── heldout_temporal_manifest.csv  # generated — see create_heldout_manifest.py
-│       ├── raw/                   # archival: pre-crop frames
+│       ├── Ulcer/, NonUlcer/      # canonical set: ROI-cropped
+│       ├── heldout_temporal_manifest.csv  # generated (see create_heldout_manifest.py)
+│       ├── raw/                   # Pre-crop frames
 │       └── filtrated/             # archival: RF-filtered variant, unused
 │
 └── assets/
@@ -39,8 +38,7 @@ data/
     │   ├── RN50_GastroNet-5M_DINOv1.pth
     │   └── VITS_GastroNet-5M_DINOv1.pth
     └── informative/               # Pretrained RF classifier artifacts (filtering only)
-        ├── rf_pipeline.pkl
-        └── features_cache.pkl
+        └── rf_pipeline.pkl
 
 output/
 └── ulcer/
@@ -49,9 +47,12 @@ output/
             └── {model}/{timestamp}/best.pt
 
 results/
-└── ulcer/
-    ├── cv/                        # CV result figures and tables
-    └── eda/                       # EDA figures and reports
+├── ulcer/
+│   ├── cv/                        # CV result figures and tables
+│   ├── filtering/
+│   │   └── features_cache.pkl     # Cache to speed up image features extraction before filtering
+│   └── eda/                       # EDA figures and reports
+└── mask_olympus.png               # saving the mask for ROI crop
 ```
 
 ## Path Management
@@ -93,8 +94,7 @@ videos/ + annotations.xlsx
   results/ulcer/eda/
 ```
 
-`heldout/` is not part of this flow — it's an independent test cohort, kept
-out of the repo (IRB), evaluated post-hoc against already-trained models.
+`heldout/` is not part of this flow, it's an independent test cohort, evaluated post-hoc against already-trained models.
 Once `heldout/{Ulcer,NonUlcer}` is populated, its manifest is generated with
-`scripts/ulcer/create_heldout_manifest.py` (no train/val/test splitting —
+`scripts/ulcer/create_heldout_manifest.py` (no train/val/test splitting,
 every row gets `split="heldout"`). See `data/ulcer/heldout/README.md`.

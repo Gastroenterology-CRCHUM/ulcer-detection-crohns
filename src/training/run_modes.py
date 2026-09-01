@@ -215,7 +215,7 @@ def _tune_clip_threshold(model: ClassifierModel, val_loader, device) -> None:
                 all_clip_ids.extend(clip_id)
 
     if not all_clip_ids or len(all_clip_ids) != len(all_probs):
-        print("  [warn] clip_ids not available — clip threshold tuning skipped.")
+        print("  [warn] clip_ids not available, clip threshold tuning skipped.")
         return
 
     clip_data: dict = defaultdict(lambda: {"probs": [], "labels": []})
@@ -357,7 +357,7 @@ def _log_test_results(
         cm_fig = plot_confusion_matrix_multiclass(
             cm=test_result["frame_level"]["confusion_matrix"],
             class_names=list(pipeline.class_names.values()),
-            title=f"Confusion matrix — {model.name}",
+            title=f"Confusion matrix, {model.name}",
         )
         log_figures({"confusion_matrix": cm_fig}, subdir="test")
     else:
@@ -367,7 +367,7 @@ def _log_test_results(
             prefix="test",
         )
 
-    # ROC curve (binary only — multiclass OvR not yet implemented)
+    # ROC curve (binary only, multiclass OvR not yet implemented)
     if not pipeline.is_multiclass:
         probs = test_result.get("probabilities_1d", test_result["probabilities"])
         try:
@@ -493,7 +493,7 @@ def run_split_mode(
     img_size: int,
     register: bool,
 ) -> None:
-    pipeline_display = f" — {pipeline.pipeline_tag}" if pipeline.pipeline_tag else ""
+    pipeline_display = f", {pipeline.pipeline_tag}" if pipeline.pipeline_tag else ""
     print(f"\n[MODE] Single val-split{pipeline_display}\n")
 
     set_seed(cfg.training.random_seed)
@@ -548,7 +548,7 @@ def run_split_mode(
                     checkpoint_root=pipeline.models_root,
                 )
             except _TrainingInterrupted as exc:
-                print("\n[!] Training interrupted — proceeding to test evaluation.")
+                print("\n[!] Training interrupted, proceeding to test evaluation.")
                 if exc.checkpoint_dir is not None:
                     results_dir = exc.checkpoint_dir
             _log_class_weights(model, train_loader.dataset.df, pipeline.label_col)  # type: ignore[union-attr]
@@ -611,7 +611,7 @@ def run_cv_mode(
 ) -> None:
     folds_to_run = [single_fold] if single_fold is not None else list(range(n_splits))
     mode_str = f"cv_{n_splits}fold" + ("_fullset" if use_all_splits or use_full_trainset else "")
-    pipeline_display = f" — {pipeline.pipeline_tag}" if pipeline.pipeline_tag else ""
+    pipeline_display = f", {pipeline.pipeline_tag}" if pipeline.pipeline_tag else ""
     print(
         f"\n[MODE] Cross-validation{pipeline_display}  ({len(folds_to_run)} fold(s), {mode_str})\n"
     )
@@ -829,7 +829,7 @@ def run_cv_mode(
             print(f"  {col:20s}  {mean:.4f} ± {std:.4f}")
             mlflow.log_metrics({f"cv_mean_{col}": mean, f"cv_std_{col}": std})
 
-        # Threshold dispersion (binary only) — informative, not used for evaluation.
+        # Threshold dispersion (binary only), informative, not used for evaluation.
         if pipeline.tune_threshold and "optimal_threshold" in metrics_df.columns:
             opt_thr = metrics_df["optimal_threshold"]
             thr_range = f"[{opt_thr.min():.3f}–{opt_thr.max():.3f}]"
@@ -959,7 +959,7 @@ def run_cv_mode(
                 cm_fig = plot_confusion_matrix_multiclass(
                     cm=best_result["frame_level"]["confusion_matrix"],
                     class_names=list(pipeline.class_names.values()),
-                    title=f"Confusion matrix — {best_model.name} (best fold {best_fold + 1})",
+                    title=f"Confusion matrix, {best_model.name} (best fold {best_fold + 1})",
                 )
                 log_figures({"confusion_matrix": cm_fig}, subdir="best_fold")
             else:
@@ -1000,7 +1000,7 @@ def run_cv_mode(
             # Held-out test set evaluation for the best fold
             if heldout_loader is not None:
                 print("\n" + "=" * 80)
-                print(f"BEST FOLD ({best_fold + 1}) — HELDOUT TEST SET")
+                print(f"BEST FOLD ({best_fold + 1}), HELDOUT TEST SET")
                 print("=" * 80)
                 _heldout_best = best_model.test_evaluation(
                     heldout_loader,
@@ -1022,9 +1022,7 @@ def run_cv_mode(
                     mlflow.log_artifact(f"{_tmp}/heldout_best_fold_probs.npy", "predictions")
                     mlflow.log_artifact(f"{_tmp}/heldout_best_fold_labels.npy", "predictions")
                 if not pipeline.is_multiclass:
-                    _probs = _heldout_best.get(
-                        "probabilities_1d", _heldout_best["probabilities"]
-                    )
+                    _probs = _heldout_best.get("probabilities_1d", _heldout_best["probabilities"])
                     try:
                         _roc_fig = plot_roc_curve(
                             name=best_model.name,
@@ -1071,7 +1069,7 @@ def run_cv_mode(
                     ) <= float(metrics_df["val_auroc"].mean()):
                         promote_model(registry_name, version, alias="champion")
 
-            # Run comparison table — models_root / model_name (3 levels up from best.pt)
+            # Run comparison table, models_root / model_name (3 levels up from best.pt)
             results_dir = best_ckpt_dir.parent.parent.parent  # type: ignore[union-attr]
             results_dir.mkdir(parents=True, exist_ok=True)
             compare_runs_to_markdown(
@@ -1081,7 +1079,7 @@ def run_cv_mode(
                 save_path=results_dir / f"runs_comparison{pipeline.comparison_file_suffix}.md",
             )
         else:
-            print("  [warn] Best fold checkpoint not found — skipping best-fold evaluation.")
+            print("  [warn] Best fold checkpoint not found, skipping best-fold evaluation.")
 
     mlflow.end_run()
 

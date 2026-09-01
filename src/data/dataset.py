@@ -84,7 +84,7 @@ class UlcerDataset(Dataset):
 
         label = torch.tensor(int(row[self.label_col]), dtype=torch.long)
         clip_id = f"{row['video_id']}_{row['segment_id']}"
-        id_frame = str(row["relative_path"])  # full relative path — globally unique
+        id_frame = str(row["relative_path"])  # full relative path, globally unique
 
         if self.transform:
             image = self.transform(image)

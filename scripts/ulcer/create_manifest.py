@@ -1,4 +1,4 @@
-"""Stage 4 — Create ulcer train/val/test manifest from processed (or filtrated) frames.
+"""Stage 4, Create ulcer train/val/test manifest from processed (or filtrated) frames.
 
 Scans input_dir and produces patient-level stratified splits.
 
@@ -164,7 +164,7 @@ class DatasetPreparer:
         rare_patients = [p for p, b in zip(patients, combined_bins) if bin_counts[b] < 3]
         if rare_patients:
             logger.warning(
-                "%d patient(s) in rare strata — assigned manually (train > test > val).",
+                "%d patient(s) in rare strata, assigned manually (train > test > val).",
                 len(rare_patients),
             )
 

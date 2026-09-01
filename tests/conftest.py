@@ -89,7 +89,7 @@ def mlflow_tmp_tracking(tmp_path) -> str:
     """Isolate MLflow tracking to a per-test sqlite DB; restore global state after.
 
     MLflow's file-store backend is in maintenance mode and rejects writes by
-    default (as of mlflow 3.x), so tests use a throwaway sqlite DB instead —
+    default (as of mlflow 3.x), so tests use a throwaway sqlite DB instead,
     the same backend kind the project itself uses (see PathConfig.mlflow_db).
     """
     original_uri = mlflow.get_tracking_uri()

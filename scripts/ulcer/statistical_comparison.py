@@ -8,8 +8,8 @@ Reads fold-level AUROC metrics logged to MLflow (metric key:
 ``fold_val_auroc``, stepped by fold index 0–4) for all top-level runs in the
 ``ulcer_detection`` experiment.  Produces two figures:
 
-    results/ulcer/cv/friedman_ranks.png     — mean rank per model + Friedman p
-    results/ulcer/cv/wilcoxon_pmatrix.png   — Wilcoxon signed-rank p-value matrix
+    results/ulcer/cv/friedman_ranks.png    mean rank per model + Friedman p
+    results/ulcer/cv/wilcoxon_pmatrix.png  Wilcoxon signed-rank p-value matrix
 
 Usage
 -----
@@ -87,7 +87,7 @@ def _load_fold_aurocs(
         history = client.get_metric_history(run.info.run_id, metric_key)
         if not history:
             warnings.warn(
-                f"Run '{run_name}' has no metric '{metric_key}' — skipping.",
+                f"Run '{run_name}' has no metric '{metric_key}', skipping.",
                 stacklevel=2,
             )
             continue
@@ -95,7 +95,7 @@ def _load_fold_aurocs(
         fold_aurocs = [m.value for m in sorted(history, key=lambda m: m.step)][:n_folds]
         if len(fold_aurocs) < n_folds:
             warnings.warn(
-                f"Run '{run_name}' has only {len(fold_aurocs)}/{n_folds} fold values — skipping.",
+                f"Run '{run_name}' has only {len(fold_aurocs)}/{n_folds} fold values, skipping.",
                 stacklevel=2,
             )
             continue
@@ -172,10 +172,12 @@ def plot_friedman_ranks(
     mean_ranks = ranked.mean(axis=1).sort_values()
 
     fig, ax = plt.subplots(figsize=(max(8, len(mean_ranks) * 0.9), 5))
-    bars = ax.barh(mean_ranks.index, mean_ranks.values, color=sns.color_palette("muted", len(mean_ranks)))
+    bars = ax.barh(
+        mean_ranks.index, mean_ranks.values, color=sns.color_palette("muted", len(mean_ranks))
+    )
     ax.set_xlabel("Mean rank (1 = best)")
     ax.set_title(
-        f"Model rankings — 5-fold CV validation AUROC\n"
+        f"Model rankings, 5-fold CV validation AUROC\n"
         f"Friedman χ²={friedman_stat:.2f}, p={friedman_p:.4f}"
         + (" *" if friedman_p < 0.05 else " (n.s.)"),
         fontsize=11,
@@ -235,8 +237,7 @@ def plot_wilcoxon_pmatrix(
                 )
 
     ax.set_title(
-        f"Wilcoxon signed-rank pairwise p-values (α={alpha})\n"
-        "* = significant after correction",
+        f"Wilcoxon signed-rank pairwise p-values (α={alpha})\n* = significant after correction",
         fontsize=11,
     )
     plt.xticks(rotation=45, ha="right")

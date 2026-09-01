@@ -12,7 +12,7 @@ on data/ulcer/processed/, via scripts/noninformative/filter_frames.py (see
 scripts/ulcer/preprocess.py). The diversity subsampling above still crops
 each frame in-memory (per detected Fuji/Olympus platform) before computing
 its embedding, purely to keep the endoscope UI panel from dominating the
-similarity signal — the frame files written to --out-dir stay uncropped.
+similarity signal, the frame files written to --out-dir stay uncropped.
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ def _run_video_mode(args: argparse.Namespace) -> pd.DataFrame:
         video_path = video_index.get(str(record_id).lower())
         if video_path is None:
             skipped.append({"record_id": record_id, "reason": "video_not_found"})
-            logger.warning("No video for record_id=%s — skipped.", record_id)
+            logger.warning("No video for record_id=%s, skipped.", record_id)
             continue
 
         platform = _detect_platform_from_video(video_path)
@@ -116,7 +116,7 @@ def _run_video_mode(args: argparse.Namespace) -> pd.DataFrame:
             if ocr_offset is not None:
                 offset_s = ocr_offset
             else:
-                logger.warning("OCR offset not found for %s — using 0.0.", record_id)
+                logger.warning("OCR offset not found for %s, using 0.0.", record_id)
 
         for _, row in rows.iterrows():
             label = int(row["label"])
@@ -159,7 +159,7 @@ def _run_video_mode(args: argparse.Namespace) -> pd.DataFrame:
                 )
 
     if skipped:
-        logger.warning("%d record(s) skipped — no matching video.", len(skipped))
+        logger.warning("%d record(s) skipped, no matching video.", len(skipped))
 
     return pd.DataFrame(manifest_rows)
 

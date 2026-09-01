@@ -1,11 +1,11 @@
-"""Model registry — backbone definitions for ulcer detection.
+"""Model registry, backbone definitions for ulcer detection.
 
 How to use
 ----------
     from src.config.models import MODEL_REGISTRY, get_model_entry
 
     entry = get_model_entry("vits16_gastronet")
-    print(entry.description)   # "ViT-Small/16 — GastroNet-5M / DINOv1"
+    print(entry.description)   # "ViT-Small/16, GastroNet-5M / DINOv1"
 
 Paper models (9 configurations)
 --------------------------------
@@ -144,7 +144,7 @@ class ModelConfig:
 
 GASTRONET_WEIGHTS = {
     "resnet50": Path("RN50_GastroNet-5M_DINOv1.pth"),
-    "vits16":   Path("VITS_GastroNet-5M_DINOv1.pth"),
+    "vits16": Path("VITS_GastroNet-5M_DINOv1.pth"),
 }
 
 _DINO_HUB = "facebookresearch/dino:main"  # torch.hub source for all DINOv1 models
@@ -153,16 +153,14 @@ _DINO_HUB = "facebookresearch/dino:main"  # torch.hub source for all DINOv1 mode
 # ── Model Registry ────────────────────────────────────────────────────────────
 
 MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
-
     # ════════════════════════════════════════════════════════════════
     # ResNet-50  (paper models: resnet50_imagenet_sup, resnet50_imagenet, resnet50_gastronet)
     # ════════════════════════════════════════════════════════════════
-
     "resnet50_imagenet_sup": ModelRegistryEntry(
         builder=models.resnet50,
         weights=ResNet50_Weights.DEFAULT,
         classifier="fc",
-        description="ResNet-50 — ImageNet / Supervised",
+        description="ResNet-50, ImageNet / Supervised",
         architecture="ResNet-50",
         pretrain_data="ImageNet",
         pretrain_method="Supervised",
@@ -172,7 +170,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         weights=_DINO_HUB,
         hub_model="dino_resnet50",
         classifier="fc",
-        description="ResNet-50 — ImageNet / DINOv1",
+        description="ResNet-50, ImageNet / DINOv1",
         architecture="ResNet-50",
         pretrain_data="ImageNet",
         pretrain_method="Self-sup. (DINOv1)",
@@ -183,35 +181,31 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         hub_model="dino_resnet50",
         classifier="fc",
         gastronet=GASTRONET_WEIGHTS["resnet50"],
-        description="ResNet-50 — GastroNet-5M / DINOv1",
+        description="ResNet-50, GastroNet-5M / DINOv1",
         architecture="ResNet-50",
         pretrain_data="GastroNet-5M",
         pretrain_method="Self-sup. (DINOv1)",
     ),
-
     # ════════════════════════════════════════════════════════════════
     # EfficientNet  (paper model: efficientnetb0)
     # ════════════════════════════════════════════════════════════════
-
     "efficientnetb0": ModelRegistryEntry(
         builder=models.efficientnet_b0,
         weights=EfficientNet_B0_Weights.DEFAULT,
         classifier="classifier",
-        description="EfficientNet-B0 — ImageNet / Supervised",
+        description="EfficientNet-B0, ImageNet / Supervised",
         architecture="EfficientNet-B0",
         pretrain_data="ImageNet",
         pretrain_method="Supervised",
     ),
-
     # ════════════════════════════════════════════════════════════════
     # ViT-Base/16  (paper models: vitb16_imagenet_sup, vitb16_imagenet)
     # ════════════════════════════════════════════════════════════════
-
     "vitb16_imagenet_sup": ModelRegistryEntry(
         builder=models.vit_b_16,
         weights=ViT_B_16_Weights.IMAGENET1K_V1,
         classifier="heads.head",
-        description="ViT-Base/16 — ImageNet / Supervised",
+        description="ViT-Base/16, ImageNet / Supervised",
         architecture="ViT-Base/16",
         pretrain_data="ImageNet",
         pretrain_method="Supervised",
@@ -221,22 +215,20 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         weights=_DINO_HUB,
         hub_model="dino_vitb16",
         classifier="head",
-        description="ViT-Base/16 — ImageNet / DINOv1",
+        description="ViT-Base/16, ImageNet / DINOv1",
         architecture="ViT-Base/16",
         pretrain_data="ImageNet",
         pretrain_method="Self-sup. (DINOv1)",
     ),
-
     # ════════════════════════════════════════════════════════════════
     # ViT-Small/16  (paper models: vits16_imagenet_hf, vits16_imagenet, vits16_gastronet)
     # ════════════════════════════════════════════════════════════════
-
     "vits16_imagenet_hf": ModelRegistryEntry(
         builder=None,
         weights="timm/vit_small_patch16_224.augreg_in1k",
         classifier="head",
         hf_model_id="timm/vit_small_patch16_224.augreg_in1k",
-        description="ViT-Small/16 — ImageNet / Supervised (timm AugReg)",
+        description="ViT-Small/16, ImageNet / Supervised (timm AugReg)",
         architecture="ViT-Small/16",
         pretrain_data="ImageNet",
         pretrain_method="Supervised",
@@ -246,7 +238,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         weights=_DINO_HUB,
         hub_model="dino_vits16",
         classifier="head",
-        description="ViT-Small/16 — ImageNet / DINOv1",
+        description="ViT-Small/16, ImageNet / DINOv1",
         architecture="ViT-Small/16",
         pretrain_data="ImageNet",
         pretrain_method="Self-sup. (DINOv1)",
@@ -257,12 +249,11 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         hub_model="dino_vits16",
         classifier="head",
         gastronet=GASTRONET_WEIGHTS["vits16"],
-        description="ViT-Small/16 — GastroNet-5M / DINOv1",
+        description="ViT-Small/16, GastroNet-5M / DINOv1",
         architecture="ViT-Small/16",
         pretrain_data="GastroNet-5M",
         pretrain_method="Self-sup. (DINOv1)",
     ),
-
 }
 
 

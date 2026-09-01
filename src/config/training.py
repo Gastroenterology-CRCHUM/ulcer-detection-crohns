@@ -88,21 +88,21 @@ class TrainingConfig:
     use_amp: bool = True
     """Use mixed precision (AMP) training."""
 
-    # LR scheduling — warmup + cosine annealing
+    # LR scheduling, warmup + cosine annealing
     warmup_epochs: int = 5
     """Linear warmup epochs before cosine decay begins."""
 
     min_lr: float = 1e-7
     """Minimum learning rate at the end of cosine annealing."""
 
-    # Augmentation — RandAugment
+    # Augmentation, RandAugment
     use_randaugment: bool = False
     """Apply RandAugment to training images."""
 
     randaugment_m: int = 9
     """RandAugment magnitude (0–30). 9 = medium strength."""
 
-    # Augmentation — Random Erasing
+    # Augmentation, Random Erasing
     use_random_erasing: bool = False
     """Apply RandomErasing after normalisation."""
 

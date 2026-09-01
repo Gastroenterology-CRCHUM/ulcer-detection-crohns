@@ -1,20 +1,20 @@
 """
 src/evaluation/mlflow_utils.py
 ==============================
-MLflow utilities — model registry, artifact logging, run tagging.
+MLflow utilities, model registry, artifact logging, run tagging.
 
 Public API
 ----------
-set_run_tags             — set standard tags on the current run
-log_dataset_info         — log manifest statistics as MLflow params
-log_figures              — log a {name: Figure} dict as PNG artifacts
-log_confusion_matrix     — log the confusion matrix as an image
-log_split_metrics        — log frame + clip metrics with a split prefix
-register_best_model      — register a run in the Model Registry
-promote_model            — assign the "champion" alias to a model version
-get_champion             — return the URI of the champion model
-get_best_run             — find the run with the best metric value
-compare_runs_to_markdown — generate a Markdown table comparing runs
+set_run_tags             - set standard tags on the current run
+log_dataset_info         - log manifest statistics as MLflow params
+log_figures              - log a {name: Figure} dict as PNG artifacts
+log_confusion_matrix     - log the confusion matrix as an image
+log_split_metrics        - log frame + clip metrics with a split prefix
+register_best_model      - register a run in the Model Registry
+promote_model            - assign the "champion" alias to a model version
+get_champion             - return the URI of the champion model
+get_best_run             - find the run with the best metric value
+compare_runs_to_markdown - generate a Markdown table comparing runs
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def log_figures(figures: dict[str, plt.Figure], subdir: str = "") -> None:
     Log a {filename: Figure} dict as PNG artifacts in MLflow.
 
     Args:
-        figures : {stem: fig} — ".png" is appended automatically.
+        figures : {stem: fig}, ".png" is appended automatically.
         subdir  : subdirectory inside the artifacts (e.g. "test").
     """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -110,9 +110,13 @@ def log_figures_from_dir(fig_dir: Path, subdir: str = "") -> None:
         mlflow.log_artifact(str(img_path), artifact_path=subdir or None)
 
 
-def log_confusion_matrix(cm: np.ndarray, threshold: float, model_name: str = "", prefix: str | None = None) -> None:
+def log_confusion_matrix(
+    cm: np.ndarray, threshold: float, model_name: str = "", prefix: str | None = None
+) -> None:
     """Log the confusion matrix as a PNG image."""
-    fig = plot_confusion_matrix(cm, threshold, title=f"Confusion matrix - Ulcer detection ({model_name})")
+    fig = plot_confusion_matrix(
+        cm, threshold, title=f"Confusion matrix - Ulcer detection ({model_name})"
+    )
     key = f"{model_name}_confusion_matrix"
     log_figures({key: fig}, subdir=prefix)
 
@@ -132,7 +136,7 @@ def log_split_metrics(metrics: dict, split: str, step: int | None = None) -> Non
         step    : epoch or fold (optional).
     """
     # Only _mean values → mlflow.log_metrics (time-series capable, appear in Metrics tab).
-    # CI bounds (_lower/_upper) are stored in a JSON artifact via log_ci_artifact —
+    # CI bounds (_lower/_upper) are stored in a JSON artifact via log_ci_artifact,
     # they are not time-series data and must not generate spurious metric plots.
     means = {
         f"{split}__{k[1:].lower()}": v
@@ -222,7 +226,7 @@ def register_best_model(
         try:
             client.create_registered_model(
                 model_name,
-                description=f"Ulcer detection — {model_name}",
+                description=f"Ulcer detection, {model_name}",
             )
             print(f"  [Registry] Registered model created: '{model_name}'")
         except MlflowException:

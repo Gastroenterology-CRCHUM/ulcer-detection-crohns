@@ -74,7 +74,7 @@ class NonInformativeClassifier:
 
     @property
     def feature_names(self) -> list[str] | None:
-        """Feature names passed to `.fit()`, or restored by `.load()` — None if never set."""
+        """Feature names passed to `.fit()`, or restored by `.load()`, None if never set."""
         return self._feature_names
 
     # ------------------------------------------------------------------
@@ -93,7 +93,7 @@ class NonInformativeClassifier:
 
         Args:
             X_train       : (N, D) feature matrix.
-            y_train       : (N,) binary labels — 1=Informative, 0=Non-Informative.
+            y_train       : (N,) binary labels, 1=Informative, 0=Non-Informative.
             feature_names : Optional list of D feature names (for importances).
             verbose       : Print training summary.
 

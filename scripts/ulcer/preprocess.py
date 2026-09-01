@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=str(cfg.ulcer.root),
         help="Root data directory for this dataset (default: data/ulcer). "
-             "All stage dirs (raw, processed, filtrated, splits) are derived from it.",
+        "All stage dirs (raw, processed, filtrated, splits) are derived from it.",
     )
     parser.add_argument(
         "--timestamps-file",
@@ -90,14 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--recompute",
         action="store_true",
         help="Force informative-filter feature re-extraction, ignoring "
-             "results/ulcer/filtering/features_cache.pkl (stage 2 only).",
+        "results/ulcer/filtering/features_cache.pkl (stage 2 only).",
     )
     return parser
 
 
 def main(args: argparse.Namespace) -> None:
     # Derive all stage directories from the dataset root
-    ulcer      = UlcerPaths(root=Path(args.root))
+    ulcer = UlcerPaths(root=Path(args.root))
     timestamps = args.timestamps_file or str(ulcer.raw / "annotations.xlsx")
 
     print("=" * 72)
@@ -106,10 +106,9 @@ def main(args: argparse.Namespace) -> None:
     print("=" * 72)
 
     if not args.skip_preprocess:
-        if not args.incremental:
-            if ulcer.processed.exists():
-                shutil.rmtree(ulcer.processed)
-                print(f"Cleared processed dir: {ulcer.processed}")
+        if not args.incremental and ulcer.processed.exists():
+            shutil.rmtree(ulcer.processed)
+            print(f"Cleared processed dir: {ulcer.processed}")
         preprocess_frames_main(
             argparse.Namespace(
                 raw_dir=str(ulcer.raw),
@@ -124,9 +123,9 @@ def main(args: argparse.Namespace) -> None:
 
     if not model_path.exists():
         print(
-            f"\n  [!] Skipping filtration — file not found: {model_path}"
+            f"\n  [!] Skipping filtration, file not found: {model_path}"
             "\n  To enable filtration, place a pretrained rf_pipeline.pkl under "
-            "data/assets/informative/ (features_cache.pkl is optional — only "
+            "data/assets/informative/ (features_cache.pkl is optional, only "
             "needed if the model's feature_names weren't saved)."
         )
     else:
@@ -146,7 +145,7 @@ def main(args: argparse.Namespace) -> None:
         except Exception as exc:
             print(
                 f"\n  [!] Filtration failed (incompatible model/feature config?): {exc}\n"
-                "  Skipping — retrain the filter or check features_cache.pkl if present."
+                "  Skipping, retrain the filter or check features_cache.pkl if present."
             )
 
     create_manifest_main(

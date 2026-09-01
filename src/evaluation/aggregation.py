@@ -88,9 +88,9 @@ def aggregate_frame_to_clip(
     Aggregate frame-level outputs to clip-level predictions.
 
     Args:
-        probabilities : 1-D float array — frame-level predicted probabilities.
-        predictions   : 1-D int array   — frame-level binary predictions.
-        labels        : 1-D int array   — frame-level ground-truth labels.
+        probabilities : 1-D float array, frame-level predicted probabilities.
+        predictions   : 1-D int array  , frame-level binary predictions.
+        labels        : 1-D int array  , frame-level ground-truth labels.
         clip_ids      : list aligned with the three arrays above.
         method        : aggregation method string (see module docstring).
 
