@@ -36,12 +36,13 @@ output/
 results/ulcer/filtering/
 
 # Data (user must provide)
-data/ulcer/raw/
-data/ulcer/processed/
-data/ulcer/filtrated/
-data/ulcer/splits/
-data/ulcer/heldout/raw/
-data/ulcer/heldout/*
+data/ulcer/raw/*
+data/ulcer/processed/*
+data/ulcer/filtrated/*
+data/ulcer/splits/*
+data/ulcer/heldout/raw/*
+data/ulcer/heldout/NonUlcer
+data/ulcer/heldout/Ulcer
 !data/ulcer/heldout/README.md
 data/assets/pretrained/*.pth
 
