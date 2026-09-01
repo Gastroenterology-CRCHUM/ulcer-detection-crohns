@@ -123,6 +123,25 @@ class TestVisualSubsampleWithBackbone:
         result = visual_subsample(frames, max_count=10, backbone=backbone)
         assert result == frames
 
+    def test_preprocess_fn_runs_before_embedding_for_every_candidate(self, tmp_path):
+        """crop-then-select contract: preprocess_fn (e.g. a platform ROI crop) must
+        see every candidate frame before its embedding is computed, so the
+        diversity/farthest-point selection is made on the cropped view, not the
+        raw one (see extract_frames.py's module docstring)."""
+        frames = _make_frames(tmp_path, 6)
+        backbone = _mock_backbone(embed_dim=8)
+        seen_shapes = []
+
+        def spy_preprocess(img):
+            seen_shapes.append(img.shape)
+            return img
+
+        result = visual_subsample(
+            frames, max_count=3, backbone=backbone, preprocess_fn=spy_preprocess
+        )
+        assert len(seen_shapes) == len(frames)
+        assert len(result) == 3
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -6,6 +6,12 @@ octagonal reference mask from an Olympus frame and applies it to all frames.
 Input : any raw frame directory (1920×1080 JPEG)
 Output: cropped and masked frames (1080×1350 JPEG)
 
+A frame whose dimensions don't match the expected raw 1920×1080 input (see
+video_utils.RAW_HW) is assumed to already be ROI-cropped, e.g. a re-run over
+--output-dir, or a --raw-dir mixing pre-cropped frames with genuine raw
+ones, and is passed straight to the mask+resize steps instead of being
+cropped a second time.
+
 Usage
 -----
     python scripts/data/preprocess_frames.py \\
@@ -24,11 +30,17 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from src.data.video_utils import crop_platform, detect_green_rectangle, normalize_video_id
+from src.data.video_utils import (
+    crop_platform,
+    detect_green_rectangle,
+    is_raw_shaped,
+    normalize_video_id,
+)
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 MASK_THRESHOLDS = [20, 30, 40, 55, 70, 90, 110]
 TARGET_HW = (1080, 1350)  # (height, width)
+PLATFORM_DETECT_MAX_CANDIDATES = 5
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,23 +92,31 @@ def _iter_images(root: Path) -> list[Path]:
 
 
 def _build_platform_map(image_paths: list[Path], raw_dir: Path) -> dict[str, str]:
-    """Detect Fuji vs Olympus from a representative frame for each video_id (parts[1])."""
-    vid_to_first: dict[str, Path] = {}
+    """Detect Fuji vs Olympus from a representative raw-shaped frame per video_id (parts[1]).
+
+    Candidates that already look ROI-cropped (see is_raw_shaped) are skipped:
+    the main loop won't re-crop them anyway, and the corner marker
+    detect_green_rectangle relies on may have been cropped away.
+    """
+    vid_to_candidates: dict[str, list[Path]] = {}
     for path in image_paths:
         rel = path.relative_to(raw_dir)
         if len(rel.parts) < 2:
             continue
         vid = normalize_video_id(rel.parts[1])
-        if vid not in vid_to_first:
-            vid_to_first[vid] = path
+        candidates = vid_to_candidates.setdefault(vid, [])
+        if len(candidates) < PLATFORM_DETECT_MAX_CANDIDATES:
+            candidates.append(path)
 
     platform_map: dict[str, str] = {}
-    for vid, path in tqdm(vid_to_first.items(), desc="Detect platforms", unit="video"):
-        frame = cv2.imread(str(path))
-        if frame is None:
-            platform_map[vid] = "olympus"
-            continue
-        platform_map[vid] = detect_green_rectangle(frame).lower()
+    for vid, candidates in tqdm(vid_to_candidates.items(), desc="Detect platforms", unit="video"):
+        platform_map[vid] = "olympus"
+        for path in candidates:
+            frame = cv2.imread(str(path))
+            if frame is None or not is_raw_shaped(frame):
+                continue
+            platform_map[vid] = detect_green_rectangle(frame).lower()
+            break
     return platform_map
 
 
@@ -165,7 +185,7 @@ def _build_shared_olympus_mask(
         frame = cv2.imread(str(src_path))
         if frame is None:
             continue
-        cropped = crop_platform(frame, "olympus")
+        cropped = crop_platform(frame, "olympus") if is_raw_shaped(frame) else frame
         if cropped.size == 0 or _has_overlay_artifacts(cropped):
             continue
         for th in MASK_THRESHOLDS:
@@ -180,7 +200,7 @@ def _build_shared_olympus_mask(
         frame = cv2.imread(str(olympus_paths[0]))
         if frame is None:
             raise RuntimeError("Cannot read Olympus reference frame for fallback mask.")
-        cropped = crop_platform(frame, "olympus")
+        cropped = crop_platform(frame, "olympus") if is_raw_shaped(frame) else frame
         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
         _, best_mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
         best_info = (olympus_paths[0].name, 1, float((best_mask > 0).mean()), -1)
@@ -249,7 +269,7 @@ def preprocess_frames(
         platform_map = {}
         shared_mask = None
 
-    n_ok = n_failed = n_skipped = 0
+    n_ok = n_failed = n_skipped = n_already_cropped = 0
     platform_counts: dict[str, int] = {}
 
     for src_path in tqdm(image_paths, desc="ROI preprocess", unit="img"):
@@ -275,19 +295,24 @@ def preprocess_frames(
             # No crop or mask, just resize
             processed = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
         else:
-            if default_platform is not None:
-                platform = default_platform
+            if not is_raw_shaped(frame):
+                # Already ROI-cropped (wrong shape for a fresh platform crop) - pass through.
+                processed = frame
+                n_already_cropped += 1
             else:
-                parts = rel_path.parts
-                vid = normalize_video_id(parts[1]) if len(parts) >= 2 else ""
-                platform = platform_map.get(vid, "olympus")
+                if default_platform is not None:
+                    platform = default_platform
+                else:
+                    parts = rel_path.parts
+                    vid = normalize_video_id(parts[1]) if len(parts) >= 2 else ""
+                    platform = platform_map.get(vid, "olympus")
 
-            platform_counts[platform] = platform_counts.get(platform, 0) + 1
+                platform_counts[platform] = platform_counts.get(platform, 0) + 1
 
-            processed = crop_platform(frame, platform)
-            if processed.size == 0:
-                n_failed += 1
-                continue
+                processed = crop_platform(frame, platform)
+                if processed.size == 0:
+                    n_failed += 1
+                    continue
 
             if processed.shape[:2] != TARGET_HW:
                 processed = cv2.resize(
@@ -322,6 +347,7 @@ def preprocess_frames(
         "preprocessed_frames": n_ok,
         "skipped_frames": n_skipped,
         "failed_frames": n_failed,
+        "already_cropped_frames": n_already_cropped,
         "platform_counts": platform_counts,
         "olympus_mask_path": str(olympus_mask_path) if olympus_mask_path else None,
     }
@@ -348,6 +374,7 @@ def main(args: argparse.Namespace) -> None:
     print("=" * 72)
     print(f"Input frames  : {stats['total_input_frames']}")
     print(f"Preprocessed  : {stats['preprocessed_frames']}")
+    print(f"Already cropped: {stats['already_cropped_frames']} (skipped platform crop)")
     print(f"Skipped       : {stats['skipped_frames']}")
     print(f"Failed        : {stats['failed_frames']}")
     print(f"Output dir    : {stats['processed_dir']}")

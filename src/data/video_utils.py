@@ -10,6 +10,7 @@ normalize_video_id(video_id)        → str
 find_overlay_offset(video_path)     → float | None
 _detect_platform_from_video(path)   → 'fuji' | 'olympus'
 crop_platform(frame, platform)      → np.ndarray
+is_raw_shaped(frame)                → bool
 """
 
 from __future__ import annotations
@@ -92,6 +93,10 @@ def _detect_platform_from_video(video_path: Path) -> str:
 OLYMPUS_CROP = {"y1": 0, "y2": -0, "x1": 550, "x2_right": 20}
 FUJI_CROP = {"y1": 60, "y2_bottom": 60, "x1": 140, "x2_right": 690}
 
+# Raw (uncropped) source resolution the offsets above were measured against.
+# A frame of any other shape is assumed to already be ROI-cropped.
+RAW_HW = (1080, 1920)  # (height, width)
+
 
 def crop_platform(frame: np.ndarray, platform: str) -> np.ndarray:
     """Lateral/vertical crop removing the endoscope's UI panel, Fuji or Olympus geometry."""
@@ -107,6 +112,16 @@ def crop_platform(frame: np.ndarray, platform: str) -> np.ndarray:
     x1 = min(max(OLYMPUS_CROP["x1"], 0), w)
     x2 = max(x1 + 1, w - OLYMPUS_CROP["x2_right"])
     return frame[y1:y2, x1:x2]
+
+
+def is_raw_shaped(frame: np.ndarray) -> bool:
+    """True if frame still has the uncropped RAW_HW source resolution.
+
+    crop_platform's offsets are fixed pixel counts tuned for that one
+    resolution, applying them to a frame of any other shape (already
+    cropped, or from a different source) would slice the wrong region.
+    """
+    return frame.shape[:2] == RAW_HW
 
 
 # ---------------------------------------------------------------------------
