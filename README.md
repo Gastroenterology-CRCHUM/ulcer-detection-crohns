@@ -19,10 +19,10 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 ├── configs/
 │   ├── example.yaml                       Reference for all config fields and defaults
 │   └── experiments/
-│       └── ulcer_batch.yaml               Experiment plan — 9 model configurations from the paper
+│       └── ulcer_batch.yaml               Experiment plan, 9 model configurations from the paper
 ├── scripts/
 │   ├── run_experiments.py                 Batch experiment orchestrator
-│   ├── data/                              Preprocessing utilities (ROI crop, frame extraction)
+│   ├── data/                              Preprocessing utilities (ROI crop)
 │   ├── noninformative/                    Informative-frame RF filter (loads pretrained rf_pipeline.pkl)
 │   └── ulcer/
 │       ├── extract_frames.py              Frame extraction from annotated videos
@@ -70,7 +70,7 @@ pip install joblib mlflow pyyaml scikit-posthocs statsmodels pytesseract pytest 
 - **Windows**: install via the [UB-Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki) (auto-detected at `C:\Program Files\Tesseract-OCR\tesseract.exe`), or ensure `tesseract` is on `PATH`.
 - **Linux/macOS**: `sudo apt install tesseract-ocr` / `brew install tesseract`.
 
-Optional — `.mov` video support on Windows:
+Optional, `.mov` video support on Windows:
 
 ```bash
 conda install -c conda-forge ffmpeg
@@ -78,7 +78,7 @@ conda install -c conda-forge ffmpeg
 
 ## Data Preparation
 
-### Step 1 — Extract frames from annotated videos
+### Step 1, Extract frames from annotated videos
 
 ```bash
 python -m scripts.ulcer.extract_frames \
@@ -86,9 +86,19 @@ python -m scripts.ulcer.extract_frames \
     --excel annotations.xlsx
 ```
 
-Auto-detects Fuji/Olympus endoscope, estimates OCR overlay offset, and runs visual-diversity subsampling (GastroNet backbone, greedy farthest-point — each frame is cropped in-memory per detected platform before embedding, but the frames written to disk stay uncropped). Informative-frame filtering is not done at this stage — see below.
+Auto-detects Fuji/Olympus endoscope, estimates OCR overlay offset, and runs visual-diversity subsampling (greedy farthest-point).
 
-### Step 2 — Run full staged preprocessing
+By default frames are extracted at 10 fps, clips are subsampled to have at maximum 50 frames, and the subsampling method uses a ResNet50 with GastroNet backbone, but it can be changed.
+
+Options:
+
+```bash
+python -m scripts.ulcer.extract_frames \
+    --input data/ulcer/raw/videos \
+    --no-subsample
+```
+
+### Step 2, Run full staged preprocessing
 
 ```bash
 python -m scripts.ulcer.preprocess
@@ -113,44 +123,35 @@ python -m scripts.ulcer.preprocess --train-ratio 0.7 --val-ratio 0.15 --test-rat
 
 ### Informative-frame classifier
 
-This repo ships only the filtering side of the RF classifier — it loads the
-pretrained `data/assets/informative/rf_pipeline.pkl` via
-`NonInformativeClassifier.load()` and applies it in
-`scripts/noninformative/filter_frames.py`, on ROI-cropped frames (stage 2 of
-`preprocess.py`, above) — it is not applied in `extract_frames.py`, since
-that would run the filter on uncropped frames, off its normal operating
-point. `NonInformativeClassifier` (in `src/noninformative/model.py`) still exposes
-`.fit()` / `.evaluate()` for programmatic retraining, but there is no longer
-a dedicated training script — this repo focuses on the ulcer-detection
-pipeline.
+This repo ships only the filtering side of the RF classifier, it loads the pretrained `data/assets/informative/rf_pipeline.pkl` via `NonInformativeClassifier.load()` and applies it in `scripts/noninformative/filter_frames.py`, on ROI-cropped frames (stage 2 of `preprocess.py`, above). `NonInformativeClassifier` (in `src/noninformative/model.py`) still exposes `.fit()` / `.evaluate()` for programmatic retraining, but there is no longer a dedicated training script, this repo focuses on the ulcer-detection pipeline.
 
-`rf_pipeline.pkl` alone is enough to run filtration — `features_cache.pkl`
-(the feature-extraction config: `groups` / `use_handcrafted` / `use_bottleneck`)
-is only a convenience cache and is git-ignored (too large to commit, since it
-also holds the full training feature matrices). If it's missing, `filter_frames.py`
-falls back to `infer_feature_config()` (`src/noninformative/features.py`),
-which reconstructs the same config from the `feature_names` embedded in
-`rf_pipeline.pkl` itself — see "Inspecting an already-trained
-`rf_pipeline.pkl`" below. `features_cache.pkl` only matters for the
-training-time convenience it was originally built for (caching
-`X_train`/`X_val`/`X_test`) — not for filtration.
+`filter_frames.py` caches its extracted features at `results/ulcer/filtering/features_cache.pkl`. It stores the feature matrix for whatever `--input-dir` was last filtered, keyed on a hash of each frame's path/size/mtime plus the `groups`/`use_handcrafted`/`use_bottleneck` config. Re-running filtration (e.g. re-running `preprocess.py`) reuses it as long as `data/ulcer/processed` hasn't changed, skipping extraction entirely; touch a frame or change the feature config and it re-extracts automatically. It's git-ignored (local, can grow large). Pass `--recompute` to force re-extraction.
 
-**`filter_frames.py` also caches its own extracted features**, at
-`results/ulcer/filtering/features_cache.pkl` — a different file with the
-same name as the one above, don't confuse the two. It stores the feature
-matrix for whatever `--input-dir` was last filtered, keyed on a hash of each
-frame's path/size/mtime plus the `groups`/`use_handcrafted`/`use_bottleneck`
-config. Re-running filtration (e.g. re-running `preprocess.py`) reuses it
-as long as `data/ulcer/processed` hasn't changed, skipping extraction
-entirely; touch a frame or change the feature config and it re-extracts
-automatically. It's git-ignored (local, can grow large). Pass `--recompute`
-to force re-extraction.
+**Manually inspecting an `rf_pipeline.pkl`** as a standalone snippet, using the
+same logic `filter_frames.py` relies on internally (`infer_feature_config()` in
+`src/noninformative/features.py`) to recover which feature groups a saved
+`rf_pipeline.pkl` was trained with, straight from its embedded `feature_names`:
 
-**If `data/assets/informative/rf_pipeline.pkl` isn't present** (e.g. a fresh
-clone without the pretrained assets), generate it from your own labelled
-Informative / Non-Informative frame manifest — e.g.
-`data/informative/splits/dataset_manifest.csv` with `image_path`, `label`,
-`split` columns (this raw dataset isn't bundled with the repo):
+```python
+import pickle
+
+with open("data/assets/informative/rf_pipeline.pkl", "rb") as f:
+    state = pickle.load(f)
+
+names = state["feature_names"]  # None if the model was trained without passing feature_names
+if names:
+    bn_names = [n for n in names if n.startswith("bn_")]
+    print(f"{len(names)} total, bottleneck: {'yes (' + str(len(bn_names)) + ')' if bn_names else 'no'}, "
+          f"hand-crafted: {[n for n in names if not n.startswith('bn_')]}")
+else:
+    print(f"{state['rf'].n_features_in_} total features (no names saved)")
+```
+
+**Feature groups default to `glcm` + `intensity`** (24 features), that's what the shipped `rf_pipeline.pkl` was trained on, and it adds relatively little overhead on top of the 2048 bottleneck features. The full hand-crafted extractor (`src/noninformative/features.py`, 6 groups / 43 features) is per-frame CPU-bound OpenCV/scikit-image work that adds up fast at scale. **For large datasets, set `USE_HANDCRAFTED = False`** and rely on bottleneck features alone, skipping hand-crafted extraction entirely is the biggest speed lever for large runs.
+
+#### Changing features extraction
+
+To change the groups of features used to create `data/assets/informative/rf_pipeline.pkl`, generate it from your own labelled Informative / Non-Informative frame manifest, e.g. `data/informative/splits/dataset_manifest.csv` with `image_path`, `label`, `split` columns (this raw dataset isn't bundled with the repo):
 
 ```python
 import pickle
@@ -159,8 +160,8 @@ from src.config.paths import get_default_paths
 from src.noninformative.features import extract_all, get_feature_names
 from src.noninformative.model import NonInformativeClassifier
 
-GROUPS = ["glcm", "intensity"]   # default hand-crafted groups (see note below)
-USE_HANDCRAFTED = True           # False → bottleneck-only, for large datasets
+GROUPS = ["glcm", "intensity"]   # can be modified
+USE_HANDCRAFTED = True           # False for bottleneck-only, for large datasets
 
 paths = get_default_paths()
 manifest = pd.read_csv("data/informative/splits/dataset_manifest.csv")
@@ -184,42 +185,11 @@ with open(paths.informative_features_cache, "wb") as f:
     pickle.dump({"groups": GROUPS, "use_handcrafted": USE_HANDCRAFTED, "use_bottleneck": True}, f)
 ```
 
-`filter_frames.py` reads `groups` / `use_handcrafted` / `use_bottleneck` back
-from `features_cache.pkl` when it's present, falling back to
-`infer_feature_config()` otherwise — keep the cache in sync whenever you
-retrain with different settings, so the inferred fallback doesn't have to
-guess.
-
-**Manually inspecting an `rf_pipeline.pkl`** — same idea as
-`infer_feature_config()`, as a standalone snippet:
-
-```python
-import pickle
-
-with open("data/assets/informative/rf_pipeline.pkl", "rb") as f:
-    state = pickle.load(f)
-
-names = state["feature_names"]  # None if the model was trained without passing feature_names
-if names:
-    bn_names = [n for n in names if n.startswith("bn_")]
-    print(f"{len(names)} total — bottleneck: {'yes (' + str(len(bn_names)) + ')' if bn_names else 'no'}, "
-          f"hand-crafted: {[n for n in names if not n.startswith('bn_')]}")
-else:
-    print(f"{state['rf'].n_features_in_} total features (no names saved)")
-```
-
-**Feature groups default to `glcm` + `intensity`** (24 features) — that's
-what the shipped `rf_pipeline.pkl` was trained on, and it adds relatively
-little overhead on top of the 2048 bottleneck features. The full
-hand-crafted extractor (`src/noninformative/features.py`, 6 groups / 43
-features) is per-frame CPU-bound OpenCV/scikit-image work that adds up fast
-at scale. **For large datasets, set `USE_HANDCRAFTED = False`** and rely on
-bottleneck features alone — skipping hand-crafted extraction entirely is the
-biggest speed lever for large runs.
-
 ## Running Experiments
 
 ### Single run
+
+Use built-in defaults for paper reproduction (full fine-tuning a ResNet50 model with GastroNet-5M pretrained weights).
 
 ```bash
 python -m scripts.ulcer.train --mode cv    # 5-fold CV
@@ -229,18 +199,11 @@ python -m scripts.ulcer.train --mode split # train/val/test split
 ### Batch experiments (all 9 configurations)
 
 ```bash
-python scripts/run_experiments.py \
-    --plan configs/experiments/ulcer_batch.yaml \
-    --heldout-manifest data/ulcer/heldout/heldout_temporal_manifest.csv
+python scripts/run_experiments.py --plan configs/experiments/ulcer_batch.yaml
 ```
 
-> **Note:** The temporal held-out frames are not included due to IRB restrictions.
-> If you already have them locally under `data/ulcer/heldout/{Ulcer,NonUlcer}`,
-> generate the manifest with `python -m scripts.ulcer.create_heldout_manifest`
-> — see `data/ulcer/heldout/README.md`. `--heldout-data-dir` defaults to
-> `data/ulcer/heldout`; pass it explicitly if your frames live elsewhere.
-> Cross-validation runs and CV-level results (fold means/std) are fully reproducible
-> without any of this.
+Cross-validation runs and CV-level results (fold means/std) are fully reproducible
+from this alone.
 
 Dry-run to preview the plan without training:
 
@@ -262,6 +225,12 @@ python scripts/run_experiments.py \
     --heldout-manifest data/ulcer/heldout/heldout_temporal_manifest.csv
 ```
 
+> **Note:** The temporal held-out frames are not included due to IRB restrictions.
+> If you already have them locally under `data/ulcer/heldout/{Ulcer,NonUlcer}`,
+> generate the manifest with `python -m scripts.ulcer.create_heldout_manifest`,
+> see `data/ulcer/heldout/README.md`. `--heldout-data-dir` defaults to
+> `data/ulcer/heldout`; pass it explicitly if your frames live elsewhere.
+
 #### YAML plan format
 
 ```yaml
@@ -277,7 +246,11 @@ runs:
     label_smoothing: 0.0
     n_splits: 5                   # CV folds when mode=cv
     register: false               # register in MLflow Model Registry
+    tune_threshold: true          # sweep + lock the decision threshold on val set
+    tune_clip_threshold: false    # also sweep a separate clip-level threshold
 ```
+
+Also accepted per run, falling back to `configs/example.yaml`'s defaults when omitted: `num_workers`, `warmup_epochs`, `min_lr`, `use_randaugment`, `randaugment_m`, `use_random_erasing`, `random_erasing_p`.
 
 ## Post-hoc Evaluation
 
@@ -302,11 +275,15 @@ python -m scripts.ulcer.evaluate_with_delong \
     --data-dir data/ulcer/heldout
 ```
 
+`--manifest`/`--data-dir` are required by the CLI but not currently read,
+predictions come from the `test_probs.npy`/`test_labels.npy` artifacts already
+logged under each fold's MLflow run, not from re-loading images from disk.
+
 ### Friedman + Wilcoxon statistical comparison
 
 Reads per-fold validation AUROCs from MLflow and produces:
-- `results/ulcer/cv/friedman_ranks.png` — mean model rank + Friedman χ² p-value
-- `results/ulcer/cv/wilcoxon_pmatrix.png` — pairwise Wilcoxon signed-rank p-value heatmap
+- `results/ulcer/cv/friedman_ranks.png`, mean model rank + Friedman χ² p-value
+- `results/ulcer/cv/wilcoxon_pmatrix.png`, pairwise Wilcoxon signed-rank p-value heatmap
 
 ```bash
 python -m scripts.ulcer.statistical_comparison
@@ -337,12 +314,12 @@ weights source, and pretraining metadata. Pass any key via `--model` or in a YAM
 | `vits16_gastronet` | ViT-Small/16 | GastroNet-5M | DINOv1 | local `.pth` file |
 
 Models marked "auto" download their weights on first use. GastroNet models require
-local weight files — see [Data Preparation](#data-preparation) below.
+local weight files, see [GastroNet weight files](#gastronet-weight-files) below.
 
 ### GastroNet weight files
 
 Download from the [GastroNet-5M paper](https://doi.org/10.1053/j.gastro.2025.07.030)
-Weights available [here](https://cortex.thetavision.nl/dataset-provider/listing/2/): 
+(weights available [here](https://cortex.thetavision.nl/dataset-provider/listing/2/))
 and place in `data/assets/pretrained/`:
 
 | File | Required by |
@@ -352,8 +329,8 @@ and place in `data/assets/pretrained/`:
 
 ### Key training options
 
-- `freeze_layers`: `0` = full fine-tuning (default), `-1` = frozen backbone, `N` = freeze first N encoder blocks
-- `num_classes`: `1` = sigmoid output with per-epoch threshold tuning (default), `2` = softmax
+- `freeze_layers`: `0` = full fine-tuning (default), `-1` = frozen backbone, `N` = freeze first N blocks (ResNet layer groups, EfficientNet feature blocks, or ViT transformer blocks, depending on architecture)
+- `num_classes`: `1` = sigmoid output; decision threshold is swept once on the validation set after training and then locked (default), `2` = softmax
 
 ## Fine-tuning GastroNet-5M for a New Task
 
@@ -396,6 +373,7 @@ ClassB/patient_002/segment_1/frame_0000.jpg,patient_002,patient_002,ClassB,1,seg
 ```
 
 Required columns: `relative_path`, `label`, `video_id`, `patient_id`, `segment_id`, `clip_key`, `split`
+(`class_name`, shown above, is optional, for readability only, not read by the loader)
 
 ### 3. Create a config file
 
@@ -439,7 +417,7 @@ python -m scripts.ulcer.train \
 
 ### 5. Evaluate
 
-Checkpoints are saved to `output/ulcer/models/detection/{model}/{timestamp}/best.pt`.
+Checkpoints are saved to `output/ulcer/models/detection/{model}/{freeze_layers}/{head_type}/{timestamp}/best.pt`.
 Metrics are logged to MLflow:
 
 ```bash
@@ -462,9 +440,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 | Experiment | MLflow name |
 |------------|-------------|
 | Ulcer detection CV | `ulcer_detection` |
-| Informative filtering | (logged inline) |
 
-Checkpoints are saved to `output/ulcer/models/detection/{model}/{timestamp}/best.pt`.
+Checkpoints are saved to `output/ulcer/models/detection/{model}/{freeze_layers}/{head_type}/{timestamp}/best.pt`.
 
 ## Tests
 

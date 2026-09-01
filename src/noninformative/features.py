@@ -139,7 +139,7 @@ def infer_feature_config(feature_names: list[str]) -> tuple[list[str] | None, bo
     """
     Reconstruct (groups, use_handcrafted, use_bottleneck) from a saved
     ``feature_names`` list (e.g. ``NonInformativeClassifier.feature_names``),
-    for callers that only have ``rf_pipeline.pkl`` and not ``features_cache.pkl``.
+    for callers that only have ``rf_pipeline.pkl``.
 
     Returns:
         groups          : Hand-crafted groups found, or None if use_handcrafted is False.

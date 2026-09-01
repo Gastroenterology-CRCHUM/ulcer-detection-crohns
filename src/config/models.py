@@ -162,7 +162,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         classifier="fc",
         description="ResNet-50, ImageNet / Supervised",
         architecture="ResNet-50",
-        pretrain_data="ImageNet",
+        pretrain_data="ImageNet-1K",
         pretrain_method="Supervised",
     ),
     "resnet50_imagenet": ModelRegistryEntry(
@@ -195,7 +195,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         classifier="classifier",
         description="EfficientNet-B0, ImageNet / Supervised",
         architecture="EfficientNet-B0",
-        pretrain_data="ImageNet",
+        pretrain_data="ImageNet-1K",
         pretrain_method="Supervised",
     ),
     # ════════════════════════════════════════════════════════════════
@@ -207,7 +207,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         classifier="heads.head",
         description="ViT-Base/16, ImageNet / Supervised",
         architecture="ViT-Base/16",
-        pretrain_data="ImageNet",
+        pretrain_data="ImageNet-1K",
         pretrain_method="Supervised",
     ),
     "vitb16_imagenet": ModelRegistryEntry(
@@ -230,7 +230,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         hf_model_id="timm/vit_small_patch16_224.augreg_in1k",
         description="ViT-Small/16, ImageNet / Supervised (timm AugReg)",
         architecture="ViT-Small/16",
-        pretrain_data="ImageNet",
+        pretrain_data="ImageNet-1K",
         pretrain_method="Supervised",
     ),
     "vits16_imagenet": ModelRegistryEntry(
