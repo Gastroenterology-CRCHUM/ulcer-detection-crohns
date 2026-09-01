@@ -28,6 +28,7 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 │       ├── extract_frames.py              Frame extraction from annotated videos
 │       ├── preprocess.py                  Full 4-stage preprocessing pipeline
 │       ├── create_manifest.py             Build train/val/test manifest CSV
+│       ├── create_heldout_manifest.py     Build the temporal held-out manifest
 │       ├── eda.py                         Dataset EDA reports and figures
 │       ├── train.py                       Single-run training (split or CV mode)
 │       ├── evaluate_with_delong.py        Multi-model DeLong AUROC comparison
@@ -47,8 +48,9 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 │       └── eda/                           Dataset EDA figures
 ├── data/
 │   └── ulcer/
-│       └── splits/
-│           └── HELDOUT_MANIFEST_README.md  Instructions for obtaining the temporal held-out manifest
+│       ├── splits/                        Train/val/test manifests (main cohort)
+│       └── heldout/
+│           └── README.md                  Instructions for obtaining the temporal held-out manifest
 └── tests/                                 Unit tests
 ```
 
@@ -84,7 +86,7 @@ python -m scripts.ulcer.extract_frames \
     --excel annotations.xlsx
 ```
 
-Auto-detects Fuji/Olympus endoscope, estimates OCR overlay offset, applies the informative-frame RF filter, and runs visual-diversity subsampling (GastroNet backbone, greedy farthest-point).
+Auto-detects Fuji/Olympus endoscope, estimates OCR overlay offset, and runs visual-diversity subsampling (GastroNet backbone, greedy farthest-point — each frame is cropped in-memory per detected platform before embedding, but the frames written to disk stay uncropped). Informative-frame filtering is not done at this stage — see below.
 
 ### Step 2 — Run full staged preprocessing
 
@@ -114,8 +116,10 @@ python -m scripts.ulcer.preprocess --train-ratio 0.7 --val-ratio 0.15 --test-rat
 This repo ships only the filtering side of the RF classifier — it loads the
 pretrained `data/assets/informative/rf_pipeline.pkl` via
 `NonInformativeClassifier.load()` and applies it in
-`scripts/noninformative/filter_frames.py` and `scripts/ulcer/extract_frames.py`.
-`NonInformativeClassifier` (in `src/noninformative/model.py`) still exposes
+`scripts/noninformative/filter_frames.py`, on ROI-cropped frames (stage 2 of
+`preprocess.py`, above) — it is not applied in `extract_frames.py`, since
+that would run the filter on uncropped frames, off its normal operating
+point. `NonInformativeClassifier` (in `src/noninformative/model.py`) still exposes
 `.fit()` / `.evaluate()` for programmatic retraining, but there is no longer
 a dedicated training script — this repo focuses on the ulcer-detection
 pipeline.
@@ -123,8 +127,8 @@ pipeline.
 `rf_pipeline.pkl` alone is enough to run filtration — `features_cache.pkl`
 (the feature-extraction config: `groups` / `use_handcrafted` / `use_bottleneck`)
 is only a convenience cache and is git-ignored (too large to commit, since it
-also holds the full training feature matrices). If it's missing, both scripts
-fall back to `infer_feature_config()` (`src/noninformative/features.py`),
+also holds the full training feature matrices). If it's missing, `filter_frames.py`
+falls back to `infer_feature_config()` (`src/noninformative/features.py`),
 which reconstructs the same config from the `feature_names` embedded in
 `rf_pipeline.pkl` itself — see "Inspecting an already-trained
 `rf_pipeline.pkl`" below. `features_cache.pkl` only matters for the
@@ -180,11 +184,11 @@ with open(paths.informative_features_cache, "wb") as f:
     pickle.dump({"groups": GROUPS, "use_handcrafted": USE_HANDCRAFTED, "use_bottleneck": True}, f)
 ```
 
-`filter_frames.py` and `extract_frames.py` both read `groups` /
-`use_handcrafted` / `use_bottleneck` back from `features_cache.pkl` when
-it's present, falling back to `infer_feature_config()` otherwise — keep the
-cache in sync whenever you retrain with different settings, so the inferred
-fallback doesn't have to guess.
+`filter_frames.py` reads `groups` / `use_handcrafted` / `use_bottleneck` back
+from `features_cache.pkl` when it's present, falling back to
+`infer_feature_config()` otherwise — keep the cache in sync whenever you
+retrain with different settings, so the inferred fallback doesn't have to
+guess.
 
 **Manually inspecting an `rf_pipeline.pkl`** — same idea as
 `infer_feature_config()`, as a standalone snippet:
@@ -227,13 +231,16 @@ python -m scripts.ulcer.train --mode split # train/val/test split
 ```bash
 python scripts/run_experiments.py \
     --plan configs/experiments/ulcer_batch.yaml \
-    --heldout-manifest data/ulcer/splits/heldout_temporal_manifest.csv
+    --heldout-manifest data/ulcer/heldout/heldout_temporal_manifest.csv
 ```
 
-> **Note:** The temporal held-out manifest is not included due to IRB restrictions.
-> See `data/ulcer/splits/HELDOUT_MANIFEST_README.md` for access instructions.
+> **Note:** The temporal held-out frames are not included due to IRB restrictions.
+> If you already have them locally under `data/ulcer/heldout/{Ulcer,NonUlcer}`,
+> generate the manifest with `python -m scripts.ulcer.create_heldout_manifest`
+> — see `data/ulcer/heldout/README.md`. `--heldout-data-dir` defaults to
+> `data/ulcer/heldout`; pass it explicitly if your frames live elsewhere.
 > Cross-validation runs and CV-level results (fold means/std) are fully reproducible
-> without it.
+> without any of this.
 
 Dry-run to preview the plan without training:
 
@@ -252,7 +259,7 @@ With a held-out test manifest evaluated at each fold:
 ```bash
 python scripts/run_experiments.py \
     --plan configs/experiments/ulcer_batch.yaml \
-    --heldout-manifest data/ulcer/splits/heldout_manifest.csv
+    --heldout-manifest data/ulcer/heldout/heldout_temporal_manifest.csv
 ```
 
 #### YAML plan format
@@ -291,8 +298,8 @@ python -m scripts.ulcer.log_heldout_clip_best_fold
 ```bash
 python -m scripts.ulcer.evaluate_with_delong \
     --run-id <MLflow CV parent run ID> \
-    --manifest data/ulcer/splits/heldout_manifest.csv \
-    --data-dir data/ulcer/filtrated
+    --manifest data/ulcer/heldout/heldout_temporal_manifest.csv \
+    --data-dir data/ulcer/heldout
 ```
 
 ### Friedman + Wilcoxon statistical comparison

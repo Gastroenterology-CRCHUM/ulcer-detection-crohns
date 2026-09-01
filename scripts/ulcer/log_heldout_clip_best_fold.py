@@ -178,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--experiment", default="ulcer_detection")
     p.add_argument("--manifest",
-                   default=str(cfg.ulcer.splits / "heldout_temporal_manifest.csv"))
+                   default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"))
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--force", action="store_true",
                    help="Re-compute even if heldout_clip_ci.json already present")

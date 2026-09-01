@@ -39,6 +39,8 @@ results/ulcer/filtering/
 data/ulcer/raw/
 data/ulcer/processed/
 data/ulcer/filtrated/
+data/ulcer/heldout/*
+!data/ulcer/heldout/README.md
 data/assets/pretrained/*.pth
 
 # OS

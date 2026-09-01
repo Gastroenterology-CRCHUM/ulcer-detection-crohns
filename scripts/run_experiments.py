@@ -430,6 +430,7 @@ def run_experiments(
     dry_run: bool = False,
     num_classes: int | None = None,
     heldout_manifest_path: Path | None = None,
+    heldout_data_dir: Path | None = None,
 ) -> None:
     manifest_path, data_dir = _get_task_paths(task, base_config, manifest_override)
     num_workers = min(base_config.training.num_workers, os.cpu_count() or 8)
@@ -439,6 +440,9 @@ def run_experiments(
     if dry_run:
         print(f"Manifest : {manifest_path}")
         print(f"Data dir : {data_dir}")
+        if heldout_manifest_path is not None:
+            print(f"Heldout manifest : {heldout_manifest_path}")
+            print(f"Heldout data dir : {heldout_data_dir}")
         print("Dry-run — no training launched.")
         return
 
@@ -495,6 +499,7 @@ def run_experiments(
                     single_fold=None,
                     register=run["register"],
                     heldout_manifest_path=heldout_manifest_path,
+                    heldout_data_dir=heldout_data_dir,
                 )
             else:
                 run_split_mode(
@@ -579,6 +584,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--heldout-data-dir",
+        default=None,
+        help=(
+            "Directory the held-out manifest's relative_path column is relative to "
+            "(default: data/ulcer/heldout — see scripts/ulcer/create_heldout_manifest.py). "
+            "Only used together with --heldout-manifest."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Print plan and exit without training"
     )
     parser.add_argument(
@@ -617,6 +631,13 @@ def main() -> None:
         if not plan:
             parser.error(f"Model '{args.model}' not found in plan.")
 
+    heldout_manifest_path = Path(args.heldout_manifest) if args.heldout_manifest else None
+    heldout_data_dir = None
+    if heldout_manifest_path is not None:
+        heldout_data_dir = (
+            Path(args.heldout_data_dir) if args.heldout_data_dir else config.paths.ulcer_heldout_dir
+        )
+
     run_experiments(
         "ulcer",
         plan,
@@ -625,7 +646,8 @@ def main() -> None:
         manifest_override=args.manifest,
         dry_run=args.dry_run,
         num_classes=args.num_classes,
-        heldout_manifest_path=Path(args.heldout_manifest) if args.heldout_manifest else None,
+        heldout_manifest_path=heldout_manifest_path,
+        heldout_data_dir=heldout_data_dir,
     )
 
 

@@ -61,7 +61,7 @@ def _make_ulcer_excel(tmp_path: Path) -> Path:
                 "end_time": ["00:02:00", "00:04:00"],
                 "sample_number": [1, 2],
             }
-        ).to_excel(writer, sheet_name="Ulcer timestamps", index=False)
+        ).to_excel(writer, sheet_name="ulcer", index=False)
         pd.DataFrame(
             {
                 "record_id": ["vid_02"],
@@ -69,7 +69,7 @@ def _make_ulcer_excel(tmp_path: Path) -> Path:
                 "end_time": ["00:06:00"],
                 "sample_number": [1],
             }
-        ).to_excel(writer, sheet_name="Non-Ulcer timestamps", index=False)
+        ).to_excel(writer, sheet_name="non_ulcer", index=False)
     return path
 
 

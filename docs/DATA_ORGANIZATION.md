@@ -15,40 +15,38 @@ data/
 │   │   │       └── normal_X/
 │   │   │           └── *.jpg
 │   │   ├── videos/                # Original .mov/.mp4 files
-│   │   └── Ulcer and Non-Ulcer Timestamps.xlsx
+│   │   └── annotations.xlsx       # sheets: "ulcer", "non_ulcer"
 │   ├── processed/                 # ROI-cropped frames (1350×1080)
 │   │   ├── Ulcer/
 │   │   └── NonUlcer/
 │   ├── filtrated/                 # Informative-only frames after RF filter
 │   │   ├── Ulcer/
 │   │   └── NonUlcer/
-│   └── splits/                    # Train/val/test manifests
-│       ├── dataset_manifest.csv
-│       ├── split_info.json
-│       └── heldout_temporal_manifest.csv  ← not included (IRB)
-│
-├── informative/                   # Informative-frame RF classifier data
-│   ├── raw/
-│   │   ├── Informative/
-│   │   └── Non-Informative/
-│   ├── processed/
-│   └── splits/
+│   ├── splits/                    # Train/val/test manifests (main cohort)
+│   │   ├── dataset_manifest.csv
+│   │   └── split_info.json
+│   └── heldout/                   # Temporal held-out test cohort — not a split
+│       │                          # of the main cohort above; a separate patient
+│       │                          # cohort acquired after the training cutoff.
+│       ├── README.md
+│       ├── Ulcer/, NonUlcer/      # canonical set: ROI-cropped, unfiltered (← not included, IRB)
+│       ├── heldout_temporal_manifest.csv  # generated — see create_heldout_manifest.py
+│       ├── raw/                   # archival: pre-crop frames
+│       └── filtrated/             # archival: RF-filtered variant, unused
 │
 └── assets/
     ├── pretrained/                # GastroNet weight files (download separately)
     │   ├── RN50_GastroNet-5M_DINOv1.pth
     │   └── VITS_GastroNet-5M_DINOv1.pth
-    └── informative/               # Trained RF classifier artifacts
+    └── informative/               # Pretrained RF classifier artifacts (filtering only)
         ├── rf_pipeline.pkl
         └── features_cache.pkl
 
 output/
-├── ulcer/
-│   └── models/
-│       └── detection/
-│           └── {model}/{timestamp}/best.pt
-└── informative/
+└── ulcer/
     └── models/
+        └── detection/
+            └── {model}/{timestamp}/best.pt
 
 results/
 └── ulcer/
@@ -70,13 +68,11 @@ paths.ulcer.raw          # data/ulcer/raw
 paths.ulcer.processed    # data/ulcer/processed
 paths.ulcer.filtrated    # data/ulcer/filtrated
 paths.ulcer.splits       # data/ulcer/splits
-
-# Informative pipeline
-paths.informative.raw    # data/informative/raw
-paths.informative.splits # data/informative/splits
+paths.ulcer.heldout      # data/ulcer/heldout
 
 # Convenience aliases
 paths.ulcer_splits_dir   # data/ulcer/splits
+paths.ulcer_heldout_dir  # data/ulcer/heldout
 paths.results_eda_dir    # results/ulcer/eda
 paths.results_cv_dir     # results/ulcer/cv
 ```
@@ -84,7 +80,7 @@ paths.results_cv_dir     # results/ulcer/cv
 ## Preprocessing Flow
 
 ```
-videos/ + Timestamps.xlsx
+videos/ + annotations.xlsx
         ↓  scripts/ulcer/extract_frames.py
     raw/
         ↓  scripts/data/preprocess_frames.py  (ROI crop)
@@ -96,3 +92,9 @@ videos/ + Timestamps.xlsx
         ↓  scripts/ulcer/eda.py
   results/ulcer/eda/
 ```
+
+`heldout/` is not part of this flow — it's an independent test cohort, kept
+out of the repo (IRB), evaluated post-hoc against already-trained models.
+Once `heldout/{Ulcer,NonUlcer}` is populated, its manifest is generated with
+`scripts/ulcer/create_heldout_manifest.py` (no train/val/test splitting —
+every row gets `split="heldout"`). See `data/ulcer/heldout/README.md`.

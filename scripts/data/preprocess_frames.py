@@ -24,15 +24,11 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from src.data.video_utils import detect_green_rectangle, normalize_video_id
+from src.data.video_utils import crop_platform, detect_green_rectangle, normalize_video_id
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 MASK_THRESHOLDS = [20, 30, 40, 55, 70, 90, 110]
 TARGET_HW = (1080, 1350)  # (height, width)
-
-# Values derived from notebooks/crop_helper.ipynb
-OLYMPUS_CROP = {"y1": 0, "y2": -0, "x1": 550, "x2_right": 20}
-FUJI_CROP = {"y1": 60, "y2_bottom": 60, "x1": 140, "x2_right": 690}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,21 +77,6 @@ def _iter_images(root: Path) -> list[Path]:
     return sorted(
         path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_EXTS
     )
-
-
-def _crop_platform(frame: np.ndarray, platform: str) -> np.ndarray:
-    h, w = frame.shape[:2]
-    if platform == "fuji":
-        y1 = min(max(FUJI_CROP["y1"], 0), h)
-        y2 = max(y1 + 1, h - FUJI_CROP["y2_bottom"])
-        x1 = min(max(FUJI_CROP["x1"], 0), w)
-        x2 = max(x1 + 1, w - FUJI_CROP["x2_right"])
-        return frame[y1:y2, x1:x2]
-    y1 = min(max(OLYMPUS_CROP["y1"], 0), h)
-    y2 = h
-    x1 = min(max(OLYMPUS_CROP["x1"], 0), w)
-    x2 = max(x1 + 1, w - OLYMPUS_CROP["x2_right"])
-    return frame[y1:y2, x1:x2]
 
 
 def _build_platform_map(image_paths: list[Path], raw_dir: Path) -> dict[str, str]:
@@ -184,7 +165,7 @@ def _build_shared_olympus_mask(
         frame = cv2.imread(str(src_path))
         if frame is None:
             continue
-        cropped = _crop_platform(frame, "olympus")
+        cropped = crop_platform(frame, "olympus")
         if cropped.size == 0 or _has_overlay_artifacts(cropped):
             continue
         for th in MASK_THRESHOLDS:
@@ -199,7 +180,7 @@ def _build_shared_olympus_mask(
         frame = cv2.imread(str(olympus_paths[0]))
         if frame is None:
             raise RuntimeError("Cannot read Olympus reference frame for fallback mask.")
-        cropped = _crop_platform(frame, "olympus")
+        cropped = crop_platform(frame, "olympus")
         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
         _, best_mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
         best_info = (olympus_paths[0].name, 1, float((best_mask > 0).mean()), -1)
@@ -301,7 +282,7 @@ def preprocess_frames(
 
             platform_counts[platform] = platform_counts.get(platform, 0) + 1
 
-            processed = _crop_platform(frame, platform)
+            processed = crop_platform(frame, platform)
             if processed.size == 0:
                 n_failed += 1
                 continue

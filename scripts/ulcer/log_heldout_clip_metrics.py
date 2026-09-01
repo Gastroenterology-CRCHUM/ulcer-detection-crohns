@@ -206,7 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--experiment", default="ulcer_detection",
                    help="MLflow experiment name (default: ulcer_detection)")
     p.add_argument("--manifest",
-                   default=str(cfg.ulcer.splits / "heldout_temporal_manifest.csv"),
+                   default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"),
                    help="Path to heldout temporal manifest CSV")
     p.add_argument("--dry-run", action="store_true",
                    help="Compute metrics but do not log to MLflow")

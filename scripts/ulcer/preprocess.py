@@ -44,9 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--timestamps-file",
         type=str,
         default=None,
-        help="Path to the timestamps workbook (default: <root>/raw/Ulcer and Non-Ulcer Timestamps.xlsx).",
+        help="Path to the annotations workbook (default: <root>/raw/annotations.xlsx).",
     )
-    parser.add_argument("--timestamps-sheet", type=str, default="Ulcer timestamps")
     parser.add_argument(
         "--model",
         type=str,
@@ -99,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(args: argparse.Namespace) -> None:
     # Derive all stage directories from the dataset root
     ulcer      = UlcerPaths(root=Path(args.root))
-    timestamps = args.timestamps_file or str(ulcer.raw / "Ulcer and Non-Ulcer Timestamps.xlsx")
+    timestamps = args.timestamps_file or str(ulcer.raw / "annotations.xlsx")
 
     print("=" * 72)
     print("ULCER STAGED PREPROCESSING")

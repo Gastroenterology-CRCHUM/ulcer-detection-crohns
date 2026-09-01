@@ -53,7 +53,6 @@ pytest --cov=src --cov-report=html
 - `test_data_splits.py`, `test_data_splits_extended.py`: Patient-level stratification, train/val splitting, CV folds
 - `test_data_subsampling.py`, `test_subsampling.py`: Visual-diversity subsampling (backbone-free paths)
 - `test_data_transforms.py`: `ResizeWithPad`, `CLAHE_Y`, and transform pipelines
-- `test_roi_extraction.py`: Shared ROI/crop extraction helpers
 - `test_video_extraction.py`: Frame extraction from video
 
 **Evaluation** (`src/evaluation/`)

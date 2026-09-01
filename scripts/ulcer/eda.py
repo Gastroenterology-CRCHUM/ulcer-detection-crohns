@@ -757,7 +757,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--excel",
         type=str,
-        default=str(paths.ulcer_raw_dir / "Ulcer and Non-Ulcer Timestamps.xlsx"),
+        default=str(paths.ulcer_raw_dir / "annotations.xlsx"),
         help="Path to the ulcer annotation Excel workbook (for annotation duration stats).",
     )
     parser.add_argument(
