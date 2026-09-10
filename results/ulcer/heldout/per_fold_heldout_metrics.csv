@@ -1,0 +1,46 @@
+config,architecture,pretrain_data,pretrain_method,fold,threshold,auroc,accuracy,f1,precision,sensitivity,specificity,auroc_frame,accuracy_frame,f1_frame,precision_frame,sensitivity_frame,specificity_frame
+resnet50_imagenet_sup,ResNet-50,ImageNet-1K,Supervised,1,0.46,0.8774,0.8462,0.8571,0.9091,0.8108,0.8929,0.8927,0.7222,0.6736,0.9111,0.5344,0.9396
+resnet50_imagenet_sup,ResNet-50,ImageNet-1K,Supervised,2,0.3,0.9064,0.8,0.8312,0.8,0.8649,0.7143,0.8818,0.7947,0.8048,0.8212,0.7891,0.8011
+resnet50_imagenet_sup,ResNet-50,ImageNet-1K,Supervised,3,0.42,0.9382,0.8462,0.8529,0.9355,0.7838,0.9286,0.919,0.822,0.8205,0.8939,0.7583,0.8957
+resnet50_imagenet_sup,ResNet-50,ImageNet-1K,Supervised,4,0.27,0.9286,0.8615,0.8767,0.8889,0.8649,0.8571,0.9264,0.8449,0.8566,0.8497,0.8637,0.823
+resnet50_imagenet_sup,ResNet-50,ImageNet-1K,Supervised,5,0.55,0.9228,0.8615,0.8732,0.9118,0.8378,0.8929,0.9237,0.8519,0.864,0.8516,0.8768,0.823
+resnet50_imagenet,ResNet-50,ImageNet,Self-sup. (DINOv1),1,0.27,0.9151,0.8,0.8395,0.7727,0.9189,0.6429,0.912,0.8417,0.8576,0.8287,0.8886,0.7874
+resnet50_imagenet,ResNet-50,ImageNet,Self-sup. (DINOv1),2,0.35,0.9527,0.8769,0.8919,0.8919,0.8919,0.8571,0.9487,0.8697,0.8755,0.8979,0.8543,0.8875
+resnet50_imagenet,ResNet-50,ImageNet,Self-sup. (DINOv1),3,0.48,0.9363,0.8,0.806,0.9,0.7297,0.8929,0.9412,0.836,0.8373,0.8949,0.7867,0.893
+resnet50_imagenet,ResNet-50,ImageNet,Self-sup. (DINOv1),4,0.34,0.9305,0.8615,0.8831,0.85,0.9189,0.7857,0.9352,0.8614,0.8777,0.8337,0.9265,0.786
+resnet50_imagenet,ResNet-50,ImageNet,Self-sup. (DINOv1),5,0.41,0.9353,0.8923,0.9067,0.8947,0.9189,0.8571,0.9493,0.8907,0.9036,0.8574,0.955,0.8162
+resnet50_gastronet,ResNet-50,GastroNet-5M,Self-sup. (DINOv1),1,0.22,0.9614,0.8615,0.8861,0.8333,0.9459,0.75,0.9652,0.8919,0.8948,0.9365,0.8566,0.9328
+resnet50_gastronet,ResNet-50,GastroNet-5M,Self-sup. (DINOv1),2,0.21,0.9624,0.8308,0.8706,0.7708,1.0,0.6071,0.9563,0.8563,0.8769,0.8115,0.9538,0.7435
+resnet50_gastronet,ResNet-50,GastroNet-5M,Self-sup. (DINOv1),3,0.12,0.9479,0.8308,0.8533,0.8421,0.8649,0.7857,0.945,0.8824,0.8864,0.9197,0.8555,0.9136
+resnet50_gastronet,ResNet-50,GastroNet-5M,Self-sup. (DINOv1),4,0.1,0.9595,0.8769,0.8947,0.8718,0.9189,0.8214,0.9486,0.8983,0.9065,0.894,0.9194,0.8738
+resnet50_gastronet,ResNet-50,GastroNet-5M,Self-sup. (DINOv1),5,0.17,0.9382,0.8,0.8354,0.7857,0.8919,0.6786,0.9363,0.8938,0.8962,0.9425,0.8543,0.9396
+efficientnetb0,EfficientNet-B0,ImageNet-1K,Supervised,1,0.33,0.9189,0.8154,0.8537,0.7778,0.9459,0.6429,0.9229,0.8474,0.8537,0.8794,0.8294,0.8683
+efficientnetb0,EfficientNet-B0,ImageNet-1K,Supervised,2,0.4,0.918,0.8308,0.8493,0.8611,0.8378,0.8214,0.9132,0.8277,0.8507,0.7951,0.9147,0.727
+efficientnetb0,EfficientNet-B0,ImageNet-1K,Supervised,3,0.49,0.9382,0.8615,0.88,0.8684,0.8919,0.8214,0.9367,0.8576,0.8614,0.9016,0.8246,0.8957
+efficientnetb0,EfficientNet-B0,ImageNet-1K,Supervised,4,0.42,0.918,0.8154,0.85,0.7907,0.9189,0.6786,0.9212,0.8252,0.8417,0.8186,0.8661,0.7778
+efficientnetb0,EfficientNet-B0,ImageNet-1K,Supervised,5,0.54,0.9353,0.8769,0.8947,0.8718,0.9189,0.8214,0.936,0.8703,0.886,0.8383,0.9396,0.7901
+vitb16_imagenet_sup,ViT-Base/16,ImageNet-1K,Supervised,1,0.7,0.9199,0.7385,0.7119,0.9545,0.5676,0.9643,0.9276,0.7877,0.7722,0.91,0.6706,0.9232
+vitb16_imagenet_sup,ViT-Base/16,ImageNet-1K,Supervised,2,0.18,0.9546,0.8308,0.8675,0.7826,0.973,0.6429,0.9417,0.8347,0.8621,0.7802,0.9633,0.6859
+vitb16_imagenet_sup,ViT-Base/16,ImageNet-1K,Supervised,3,0.16,0.9411,0.8,0.8471,0.75,0.973,0.5714,0.9263,0.8341,0.8497,0.8264,0.8744,0.7874
+vitb16_imagenet_sup,ViT-Base/16,ImageNet-1K,Supervised,4,0.17,0.9189,0.8308,0.8571,0.825,0.8919,0.75,0.9192,0.843,0.8511,0.8663,0.8365,0.8505
+vitb16_imagenet_sup,ViT-Base/16,ImageNet-1K,Supervised,5,0.62,0.9141,0.8308,0.8358,0.9333,0.7568,0.9286,0.9233,0.822,0.8189,0.9017,0.75,0.9053
+vitb16_imagenet,ViT-Base/16,ImageNet,Self-sup. (DINOv1),1,0.8,0.9141,0.7231,0.6897,0.9524,0.5405,0.9643,0.9422,0.7972,0.7742,0.9613,0.6481,0.9698
+vitb16_imagenet,ViT-Base/16,ImageNet,Self-sup. (DINOv1),2,0.1,0.9421,0.8769,0.8824,0.9677,0.8108,0.9643,0.9531,0.8487,0.8428,0.9522,0.7559,0.9561
+vitb16_imagenet,ViT-Base/16,ImageNet,Self-sup. (DINOv1),3,0.1,0.944,0.8154,0.8462,0.8049,0.8919,0.7143,0.937,0.8779,0.8864,0.8853,0.8874,0.8669
+vitb16_imagenet,ViT-Base/16,ImageNet,Self-sup. (DINOv1),4,0.16,0.9295,0.8615,0.8861,0.8333,0.9459,0.75,0.9444,0.862,0.8665,0.9014,0.8341,0.8944
+vitb16_imagenet,ViT-Base/16,ImageNet,Self-sup. (DINOv1),5,0.1,0.9218,0.8308,0.8608,0.8095,0.9189,0.7143,0.9335,0.8792,0.887,0.8902,0.8839,0.8738
+vits16_imagenet_hf,ViT-Small/16,ImageNet-1K,Supervised,1,0.35,0.9247,0.7692,0.7692,0.8929,0.6757,0.8929,0.934,0.8118,0.8016,0.9228,0.7085,0.9314
+vits16_imagenet_hf,ViT-Small/16,ImageNet-1K,Supervised,2,0.13,0.9585,0.8769,0.8889,0.9143,0.8649,0.8929,0.9537,0.8614,0.8629,0.9196,0.8128,0.9177
+vits16_imagenet_hf,ViT-Small/16,ImageNet-1K,Supervised,3,0.16,0.9276,0.7846,0.8293,0.7556,0.9189,0.6071,0.9287,0.8328,0.8543,0.8023,0.9135,0.7394
+vits16_imagenet_hf,ViT-Small/16,ImageNet-1K,Supervised,4,0.13,0.9324,0.8,0.8471,0.75,0.973,0.5714,0.9383,0.8589,0.8734,0.8418,0.9076,0.8025
+vits16_imagenet_hf,ViT-Small/16,ImageNet-1K,Supervised,5,0.25,0.9334,0.8615,0.88,0.8684,0.8919,0.8214,0.9435,0.8729,0.8815,0.8815,0.8815,0.8628
+vits16_imagenet,ViT-Small/16,ImageNet,Self-sup. (DINOv1),1,0.81,0.9208,0.8308,0.8358,0.9333,0.7568,0.9286,0.9307,0.8481,0.8477,0.9172,0.7879,0.9177
+vits16_imagenet,ViT-Small/16,ImageNet,Self-sup. (DINOv1),2,0.1,0.9527,0.8769,0.8919,0.8919,0.8919,0.8571,0.9551,0.8818,0.8829,0.9422,0.8306,0.941
+vits16_imagenet,ViT-Small/16,ImageNet,Self-sup. (DINOv1),3,0.1,0.9006,0.8462,0.8718,0.8293,0.9189,0.75,0.9219,0.8423,0.8495,0.8706,0.8294,0.8573
+vits16_imagenet,ViT-Small/16,ImageNet,Self-sup. (DINOv1),4,0.15,0.9218,0.8154,0.8462,0.8049,0.8919,0.7143,0.9363,0.857,0.8614,0.8973,0.8282,0.8903
+vits16_imagenet,ViT-Small/16,ImageNet,Self-sup. (DINOv1),5,0.6,0.9334,0.8462,0.8718,0.8293,0.9189,0.75,0.9421,0.8531,0.8734,0.8124,0.9443,0.7476
+vits16_gastronet,ViT-Small/16,GastroNet-5M,Self-sup. (DINOv1),1,0.2,0.9498,0.8769,0.8947,0.8718,0.9189,0.8214,0.9569,0.904,0.9132,0.8872,0.9408,0.8615
+vits16_gastronet,ViT-Small/16,GastroNet-5M,Self-sup. (DINOv1),2,0.1,0.944,0.8769,0.8889,0.9143,0.8649,0.8929,0.9565,0.8919,0.8932,0.9505,0.8424,0.9492
+vits16_gastronet,ViT-Small/16,GastroNet-5M,Self-sup. (DINOv1),3,0.15,0.9653,0.9231,0.9351,0.9,0.973,0.8571,0.9684,0.9116,0.9199,0.8956,0.9455,0.8724
+vits16_gastronet,ViT-Small/16,GastroNet-5M,Self-sup. (DINOv1),4,0.35,0.9585,0.8923,0.9091,0.875,0.9459,0.8214,0.9605,0.897,0.9045,0.9002,0.9088,0.8834
+vits16_gastronet,ViT-Small/16,GastroNet-5M,Self-sup. (DINOv1),5,0.1,0.9112,0.8,0.8354,0.7857,0.8919,0.6786,0.9169,0.8144,0.8367,0.7924,0.8863,0.7311

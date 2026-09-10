@@ -5,14 +5,6 @@ samples frames from the matching video at --fps and, when a segment yields
 more than --max-frames frames, keeps only the --max-frames most visually
 diverse ones (GastroNet backbone embeddings, greedy farthest-point sampling),
  the discarded frames are deleted, not just excluded from the manifest.
-
-Informative-frame filtering is NOT done here: the RF filter needs ROI-cropped
-frames to match its normal operating point, so it runs later in the pipeline,
-on data/ulcer/processed/, via scripts/noninformative/filter_frames.py (see
-scripts/ulcer/preprocess.py). The diversity subsampling above still crops
-each frame in-memory (per detected Fuji/Olympus platform) before computing
-its embedding, purely to keep the endoscope UI panel from dominating the
-similarity signal, the frame files written to --out-dir stay uncropped.
 """
 
 from __future__ import annotations
@@ -30,7 +22,7 @@ from src.config.paths import get_default_paths
 from src.data.annotation_loaders import load_ulcer_annotations
 from src.data.subsampling import load_backbone_for_embeddings, visual_subsample
 from src.data.video_extraction import build_video_index_generic, extract_frames_from_video
-from src.data.video_utils import _detect_platform_from_video, crop_platform, find_overlay_offset
+from src.data.video_utils import detect_platform_from_video, crop_platform, find_overlay_offset
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +94,7 @@ def _run_video_mode(args: argparse.Namespace) -> pd.DataFrame:
             logger.warning("No video for record_id=%s, skipped.", record_id)
             continue
 
-        platform = _detect_platform_from_video(video_path)
+        platform = detect_platform_from_video(video_path)
         crop_fn = (lambda img: crop_platform(img, platform)) if backbone is not None else None
 
         offset_s = 0.0

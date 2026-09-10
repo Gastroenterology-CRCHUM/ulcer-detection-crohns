@@ -19,7 +19,6 @@ from src.config import (
     PathConfig,
     TrainingConfig,
     UlcerPaths,
-    legacy_dict_to_config,
     load_config,
 )
 from src.utils import ConfigurationError
@@ -303,38 +302,6 @@ class TestLoadConfig:
             assert config.training.batch_size == 8
         finally:
             Path(temp_path).unlink()
-
-
-class TestLegacyCompatibility:
-    """Test legacy dict compatibility."""
-
-    def test_legacy_dict_to_config(self):
-        """Test converting legacy CONFIG dict to Config object."""
-        legacy_config = {
-            "model": "vitb16_imagenet_sup",
-            "num_classes": 2,
-            "batch_size": 32,
-            "epochs": 100,
-            "learning_rate": 1e-4,
-            "data_dir": "data",
-            "output_dir": "output",
-        }
-
-        config = legacy_dict_to_config(legacy_config)
-        assert isinstance(config, Config)
-        assert config.model.model == "vitb16_imagenet_sup"
-        assert config.training.batch_size == 32
-        # legacy dict data_dir may be overridden; check it exists as Path
-        assert isinstance(config.paths.ulcer_processed_dir, Path)
-
-    def test_legacy_dict_with_defaults(self):
-        """Test legacy dict conversion with missing values uses defaults."""
-        legacy_config = {"model": "resnet50_imagenet_sup"}
-
-        config = legacy_dict_to_config(legacy_config)
-        assert config.model.model == "resnet50_imagenet_sup"
-        assert config.training.batch_size == 64  # default
-        assert config.training.epochs == 100  # default
 
 
 if __name__ == "__main__":

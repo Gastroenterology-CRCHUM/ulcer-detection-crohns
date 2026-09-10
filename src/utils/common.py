@@ -175,19 +175,6 @@ def format_metrics(metrics: dict[str, float], prefix: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DataLoader helpers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def loader_dataset_size(loader) -> int:
-    """Return the number of samples in a DataLoader's underlying dataset."""
-    dataset = getattr(loader, "dataset", None)
-    if dataset is not None and hasattr(dataset, "__len__"):
-        return int(len(dataset))
-    return 0
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # Type Validators
 # ═══════════════════════════════════════════════════════════════════════════════
 

@@ -8,7 +8,7 @@ Functions
 detect_green_rectangle(image)       → 'Fuji' | 'Olympus'
 normalize_video_id(video_id)        → str
 find_overlay_offset(video_path)     → float | None
-_detect_platform_from_video(path)   → 'fuji' | 'olympus'
+detect_platform_from_video(path)    → 'fuji' | 'olympus'
 crop_platform(frame, platform)      → np.ndarray
 is_raw_shaped(frame)                → bool
 """
@@ -24,8 +24,6 @@ import cv2
 import numpy as np
 import pytesseract
 from pytesseract import TesseractNotFoundError, image_to_string
-
-from src.data.roi_extraction import crop_frac
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -70,7 +68,7 @@ def detect_green_rectangle(image: np.ndarray) -> str:
         return "Fuji" if mean_green > 25.0 else "Olympus"
 
 
-def _detect_platform_from_video(video_path: Path) -> str:
+def detect_platform_from_video(video_path: Path) -> str:
     """Return 'fuji' or 'olympus' by inspecting the first readable frame."""
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -89,7 +87,6 @@ def _detect_platform_from_video(video_path: Path) -> str:
 # Platform-aware ROI crop
 # ---------------------------------------------------------------------------
 
-# Values derived from notebooks/crop_helper.ipynb
 OLYMPUS_CROP = {"y1": 0, "y2": -0, "x1": 550, "x2_right": 20}
 FUJI_CROP = {"y1": 60, "y2_bottom": 60, "x1": 140, "x2_right": 690}
 
@@ -137,7 +134,7 @@ def normalize_video_id(video_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# OCR overlay-offset helpers
+# OCR overlay-offset detection
 # ---------------------------------------------------------------------------
 
 
@@ -210,12 +207,18 @@ def _ensure_tesseract_path() -> bool:
             return True
     return False
 
+def _crop_frac(img: np.ndarray, roi: tuple[float, float, float, float]) -> np.ndarray:
+    """Crop an image using fractional coordinates (y0, y1, x0, x1) in [0, 1]."""
+    y0, y1, x0, x1 = roi
+    H, W = img.shape[:2]
+    return img[int(H * y0) : int(H * y1), int(W * x0) : int(W * x1)]
 
-def ocr_left_panel_text(frame_bgr: np.ndarray, save_debug: str | None = None) -> str:
+
+def _ocr_left_panel_text(frame_bgr: np.ndarray, save_debug: str | None = None) -> str:
     global _TESSERACT_WARNED
     _ensure_tesseract_path()
 
-    roi = crop_frac(frame_bgr, LEFT_PANEL_ROI)
+    roi = _crop_frac(frame_bgr, LEFT_PANEL_ROI)
     if roi.size == 0:
         return ""
 
@@ -287,7 +290,7 @@ def find_overlay_offset(
             dbg_root.mkdir(parents=True, exist_ok=True)
             dbg_path = str(dbg_root / f"{video_path.stem}_leftpanel_t{t}.png")
 
-        txt = ocr_left_panel_text(frame, save_debug=dbg_path)
+        txt = _ocr_left_panel_text(frame, save_debug=dbg_path)
         overlay_sec = _parse_stopwatch_seconds(txt, is_fuji=is_fuji, hint_sec=t)
         if overlay_sec is not None:
             print(

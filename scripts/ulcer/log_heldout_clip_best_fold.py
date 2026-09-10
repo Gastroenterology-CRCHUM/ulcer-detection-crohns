@@ -34,12 +34,7 @@ from mlflow import MlflowClient
 
 from src.config.paths import get_default_paths
 from src.evaluation.metrics import compute_metrics_with_ci
-
-
-def _download_npy(client: MlflowClient, run_id: str, path: str) -> np.ndarray:
-    with tempfile.TemporaryDirectory() as tmp:
-        local = client.download_artifacts(run_id, path, tmp)
-        return np.load(local)
+from src.evaluation.mlflow_io import download_npy
 
 
 def _get_best_fold_clip_threshold(
@@ -96,7 +91,7 @@ def process_experiment(
 
         # Load best-fold heldout frame probs
         try:
-            probs = _download_npy(client, run_id, "predictions/heldout_best_fold_probs.npy")
+            probs = download_npy(client, run_id, "predictions/heldout_best_fold_probs.npy")
         except Exception as e:
             print(f"  {model}: cannot load heldout_best_fold_probs, {e}")
             continue

@@ -26,17 +26,25 @@ entry_points:
         --plan {plan}
         --heldout-manifest {heldout}
 
-  # ── Multi-model DeLong evaluation ────────────────────────────────
-  evaluate:
+  # ── CV validation-fold report ─────────────────────────────────────
+  cv_results:
     parameters:
-      run_id:   {type: str}
-      manifest: {type: str, default: "data/ulcer/heldout/heldout_temporal_manifest.csv"}
-      data_dir: {type: str, default: "data/ulcer/filtrated"}
+      output_dir:         {type: str, default: "results/ulcer/cv"}
+      heldout_output_dir: {type: str, default: "results/ulcer/heldout"}
     command: >
-      python -m scripts.ulcer.evaluate_with_delong
-        --run-id {run_id}
+      python -m scripts.ulcer.cv_results
+        --output-dir {output_dir}
+        --heldout-output-dir {heldout_output_dir}
+
+  # ── Held-out ensemble evaluation + effect decomposition ───────────
+  effect_decomposition:
+    parameters:
+      manifest:   {type: str, default: "data/ulcer/heldout/heldout_temporal_manifest.csv"}
+      output_dir: {type: str, default: "results/ulcer/heldout"}
+    command: >
+      python -m scripts.ulcer.effect_decomposition
         --manifest {manifest}
-        --data-dir {data_dir}
+        --output-dir {output_dir}
 
   # ── Preprocessing ─────────────────────────────────────────────────
   preprocess:

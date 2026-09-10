@@ -34,10 +34,12 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from src.data.constants import N_FOLDS
 from src.data.dataset import UlcerDataset
 from src.data.splits import assign_cv_folds, assign_val_split
 from src.data.transforms import get_transforms
+
+# Default number of cross-validation folds
+N_FOLDS: int = 5
 
 # ---------------------------------------------------------------------------
 # Internal helper

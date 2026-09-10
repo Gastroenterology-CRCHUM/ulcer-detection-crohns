@@ -12,7 +12,6 @@ from .common import (
     format_metrics,
     get_device,
     get_device_info,
-    loader_dataset_size,
     set_seed,
     validate_file_exists,
     validate_path_exists,

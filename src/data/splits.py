@@ -91,7 +91,7 @@ def build_strat_bin(patient_id: str, df: pd.DataFrame, mode: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def split_with_rare_strata(
+def _split_with_rare_strata(
     ids: list,
     strat_labels: list[str],
     train_ratio: float,
@@ -326,7 +326,7 @@ def assign_train_val_test_split(
     }
     strat_labels = [label_map[pid] for pid in patients]
 
-    train_ids, val_ids, test_ids, strategy, _ = split_with_rare_strata(
+    train_ids, val_ids, test_ids, strategy, _ = _split_with_rare_strata(
         patients, strat_labels, train_ratio, val_ratio, test_ratio, random_seed, rare_threshold
     )
 

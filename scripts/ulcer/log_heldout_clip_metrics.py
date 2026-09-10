@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import tempfile
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -40,6 +39,7 @@ from sklearn.metrics import (
 )
 
 from src.config.paths import get_default_paths
+from src.evaluation.mlflow_io import download_npy
 
 
 # ---------------------------------------------------------------------------
@@ -77,12 +77,6 @@ def _clip_metrics(
         "specificity": spec,
         "n_clips": len(clip_df),
     }
-
-
-def _download_npy(client: MlflowClient, run_id: str, artifact_path: str) -> np.ndarray:
-    with tempfile.TemporaryDirectory() as tmp:
-        local = client.download_artifacts(run_id, artifact_path, tmp)
-        return np.load(local)
 
 
 def _find_heldout_probs_path(client: MlflowClient, run_id: str) -> str | None:
@@ -159,7 +153,7 @@ def process_experiment(
                 print(f"    {fold_name}: no heldout probs artifact, skip.")
                 continue
 
-            probs = _download_npy(client, ch.info.run_id, probs_path)
+            probs = download_npy(client, ch.info.run_id, probs_path)
             m = _clip_metrics(probs, clip_keys, clip_label_map, clip_thresh)
 
             print(

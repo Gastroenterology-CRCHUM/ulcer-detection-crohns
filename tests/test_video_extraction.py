@@ -8,7 +8,7 @@ from src.data.video_extraction import (
     VIDEO_EXTS,
     build_video_index_generic,
     collect_frames_from_dir,
-    sample_timestamps,
+    _sample_timestamps,
 )
 
 # ---------------------------------------------------------------------------
@@ -24,23 +24,23 @@ from src.data.video_extraction import (
     ],
 )
 def test_sample_timestamps_fps(fps, expected):
-    assert sample_timestamps(0.0, 3.0, fps_target=fps) == pytest.approx(expected)
+    assert _sample_timestamps(0.0, 3.0, fps_target=fps) == pytest.approx(expected)
 
 
 def test_sample_timestamps_empty_when_end_before_start():
-    assert sample_timestamps(5.0, 3.0, fps_target=1.0) == []
+    assert _sample_timestamps(5.0, 3.0, fps_target=1.0) == []
 
 
 def test_sample_timestamps_empty_when_zero_fps():
-    assert sample_timestamps(0.0, 1.0, fps_target=0.0) == []
+    assert _sample_timestamps(0.0, 1.0, fps_target=0.0) == []
 
 
 def test_sample_timestamps_empty_when_equal():
-    assert sample_timestamps(2.0, 2.0, fps_target=1.0) == []
+    assert _sample_timestamps(2.0, 2.0, fps_target=1.0) == []
 
 
 def test_sample_timestamps_start_offset():
-    ts = sample_timestamps(10.0, 12.0, fps_target=1.0)
+    ts = _sample_timestamps(10.0, 12.0, fps_target=1.0)
     assert ts == pytest.approx([10.0, 11.0])
 
 

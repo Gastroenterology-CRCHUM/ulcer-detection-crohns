@@ -31,10 +31,10 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 │       ├── create_heldout_manifest.py     Build the temporal held-out manifest
 │       ├── eda.py                         Dataset EDA reports and figures
 │       ├── train.py                       Single-run training (split or CV mode)
-│       ├── evaluate_with_delong.py        Multi-model DeLong AUROC comparison
 │       ├── log_heldout_clip_metrics.py    Clip-level held-out metrics (all CV folds)
 │       ├── log_heldout_clip_best_fold.py  Clip-level held-out CI (best fold)
-│       └── statistical_comparison.py      Friedman + Wilcoxon pairwise tests on CV fold AUROCs
+│       ├── cv_results.py                  CV validation-fold report (AUROC comparison, fold matrix, Friedman/Wilcoxon)
+│       └── effect_decomposition.py        Held-out ensemble evaluation + method/corpus effect decomposition
 ├── src/
 │   ├── config/                            Dataclass configuration and MODEL_REGISTRY
 │   ├── data/                              Datasets, dataloaders, splits, transforms, extraction
@@ -266,32 +266,44 @@ python -m scripts.ulcer.log_heldout_clip_metrics
 python -m scripts.ulcer.log_heldout_clip_best_fold
 ```
 
-### DeLong pairwise AUROC comparison
+### CV validation-fold report
+
+Reads metrics/params already logged by `run_modes.py` during CV training (plus,
+for specificity/sensitivity, the per-fold probability artifacts) and reports the
+9 configurations' validation-fold performance: main table, per-config AUROC bar
+chart, the fold x model AUROC matrix, threshold dispersion, and a Friedman +
+Wilcoxon comparison on validation AUROC. AUROC is the only metric featured on
+this validation-fold side (see the module docstring): sensitivity/specificity/F1
+are evaluated at a threshold tuned by maximizing on that same fold, so they are
+not a fair cross-model comparison there -- they are still recomputed and kept in
+`cv_per_fold_val_metrics.csv` as diagnostic detail. Also writes the held-out
+per-fold metrics (all 4 metrics, both frame and clip level -- fair there, since
+the threshold is fixed from CV and only applied, not tuned, on that cohort)
+into `results/ulcer/heldout/`.
 
 ```bash
-python -m scripts.ulcer.evaluate_with_delong \
-    --run-id <MLflow CV parent run ID> \
-    --manifest data/ulcer/heldout/heldout_temporal_manifest.csv \
-    --data-dir data/ulcer/heldout
+python -m scripts.ulcer.cv_results
+python -m scripts.ulcer.cv_results --dry-run
+python -m scripts.ulcer.cv_results --no-val-specificity
 ```
 
-`--manifest`/`--data-dir` are required by the CLI but not currently read,
-predictions come from the `test_probs.npy`/`test_labels.npy` artifacts already
-logged under each fold's MLflow run, not from re-loading images from disk.
+### Held-out ensemble evaluation + effect decomposition
 
-### Friedman + Wilcoxon statistical comparison
-
-Reads per-fold validation AUROCs from MLflow and produces:
-- `results/ulcer/cv/friedman_ranks.png`, mean model rank + Friedman χ² p-value
-- `results/ulcer/cv/wilcoxon_pmatrix.png`, pairwise Wilcoxon signed-rank p-value heatmap
+Averages each configuration's 5 CV folds' held-out frame probabilities into an
+ensemble, aggregates to clip level, and reports ensemble AUROC/metrics with a
+patient-clustered bootstrap CI, ROC curves, and Friedman/Wilcoxon rank tests.
+Decomposes the pretraining method effect (Supervised -> DINOv1) and corpus
+effect (ImageNet -> GastroNet-5M) across 5 architecture-matched pairs, with the
+patient-clustered bootstrap Delta-AUROC CI as the primary uncertainty statement
+and ensemble/best-fold DeLong kept alongside for traceability. Prints a
+LIMITATIONS section (patient-clustered CIs don't re-tune the threshold per
+resample, the 9x9 pairwise matrix is exploratory/uncorrected, etc.) at the end
+of every run.
 
 ```bash
-python -m scripts.ulcer.statistical_comparison
-
-# Custom MLflow store or experiment name:
-python -m scripts.ulcer.statistical_comparison \
-    --mlflow-uri sqlite:///mlflow.db \
-    --experiment ulcer_detection
+python -m scripts.ulcer.effect_decomposition
+python -m scripts.ulcer.effect_decomposition --dry-run
+python -m scripts.ulcer.effect_decomposition --n-bootstrap 20000 --seed 7
 ```
 
 ## Models

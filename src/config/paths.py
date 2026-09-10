@@ -7,7 +7,7 @@ Data Directory Structure
 
 data/
 ├── ulcer/                         # Ulcer detection pipeline
-│   ├── raw/                       # Source frames (1920×1080 JPEG)
+│   ├── raw/                       # Source frames (1920×1080)
 │   │   ├── Ulcer/
 │   │   │   └── vid_XX_XXXX/
 │   │   │       └── ulcer_X/
@@ -19,31 +19,44 @@ data/
 │   ├── processed/                 # Cropped frames (1350×1080)
 │   │   ├── Ulcer/
 │   │   └── NonUlcer/
+│   ├── filtrated/                 # Filtered frames
+│   │   ├── Ulcer/
+│   │   ├── NonUlcer/
+│   │   └── predictions.csv        # Informative-filter predictions for all frames
 │   ├── splits/                    # Train/val/test manifests
 │   │   ├── dataset_manifest.csv
 │   │   ├── split_info.json
+│   │   ├── patient_info.json
 │   │   └── train.csv / val.csv / test.csv
 │   └── heldout/                   # Temporal held-out test cohort (not one of the splits above)
+│       ├── raw/                       # Source frames (1920×1080)
+│       │   ├── Ulcer/
+│       │   │   └── vid_XX_XXXX/
+│       │   │       └── ulcer_X/
+│       │   └── NonUlcer/
+│       │           └── vid_XX_XXXX/
+│       │           └── normal_X/
+│       ├── Ulcer/             # Cropped frames (1350×1080)
+│       ├── NonUlcer/
 │       ├── README.md
-│       └── heldout_temporal_manifest.csv  ← not included (IRB)
+│       └── heldout_temporal_manifest.csv
 │
-└── assets/                        # Shared assets
+└── assets/
     ├── pretrained/                # Pre-trained model weights (ResNet, ViT, DINO, etc.)
     └── informative/               # Pretrained informative-filter artifacts (RF classifier)
-        ├── rf_pipeline.pkl
-        └── features_cache.pkl
+        └── rf_pipeline.pkl
 
 output/
-├── ulcer/
-│   └── models/
-│       └── detection/             # Checkpoints per model/timestamp
-└── shared/
+└── ulcer/
+    └── models/
+        └── detection/             # Checkpoints per model/timestamp
 
 results/
 └── ulcer/
     ├── cv/                        # CV result figures and tables
     ├── eda/                       # EDA figures and reports
-    └── filtering/                 # Cached informative-filter feature matrix
+    ├── filtering/                 # Cached informative-filter feature matrix
+    └── heldout/                   # Results on held-out temporal cohort
 """
 
 from __future__ import annotations
@@ -148,6 +161,7 @@ class PathConfig:
     results_eda_dir: Path = Path("results/ulcer/eda")
     results_cv_dir: Path = Path("results/ulcer/cv")
     results_filtering_dir: Path = Path("results/ulcer/filtering")
+    results_heldout_dir: Path = Path("results/ulcer/heldout")
 
     # ============================================================================
     # MLflow
@@ -181,6 +195,7 @@ class PathConfig:
             self.results_eda_dir,
             self.results_cv_dir,
             self.results_filtering_dir,
+            self.results_heldout_dir,
             self.ulcer_processed_dir,
         ]
         for path in output_paths:
@@ -203,6 +218,7 @@ class PathConfig:
             "results_dir": self.results_ulcer_dir,
             "eda_dir": self.results_eda_dir,
             "cv_dir": self.results_cv_dir,
+            "heldout_dir": self.results_heldout_dir,
         }
 
     def get_task_output_config(self, task: str) -> dict:

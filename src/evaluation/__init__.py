@@ -6,7 +6,6 @@ Public API for the evaluation module.
 Usage
 -----
     from src.evaluation import compute_metrics_with_ci, plot_roc_curves
-    from src.evaluation import log_evaluation
 """
 
 from src.evaluation.aggregation import aggregate_frame_to_clip

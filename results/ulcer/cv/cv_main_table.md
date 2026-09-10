@@ -1,0 +1,11 @@
+| config | architecture | pretrain_data | pretrain_method | n_folds | val_auroc_mean | val_auroc_std | val_f1_mean | val_f1_std | val_precision_mean | val_precision_std | val_recall_mean | val_recall_std | threshold_mean | threshold_std | threshold_min | threshold_max | best_fold | best_fold_val_auroc | best_fold_threshold |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| resnet50_imagenet_sup | ResNet-50 | ImageNet-1K | Supervised | 5 | 0.8872 | 0.0416 | 0.7587 | 0.0515 | 0.7813 | 0.1517 | 0.7592 | 0.0749 | 0.488 | 0.1951 | 0.3 | 0.8 | 2 | 0.9293 | 0.36 |
+| resnet50_imagenet | ResNet-50 | ImageNet | Self-sup. (DINOv1) | 5 | 0.8636 | 0.0932 | 0.7365 | 0.1292 | 0.7084 | 0.1743 | 0.782 | 0.1117 | 0.38 | 0.0485 | 0.34 | 0.46 | 2 | 0.9901 | 0.36 |
+| resnet50_gastronet | ResNet-50 | GastroNet-5M | Self-sup. (DINOv1) | 5 | 0.967 | 0.0191 | 0.8803 | 0.0625 | 0.9508 | 0.074 | 0.8305 | 0.118 | 0.452 | 0.2899 | 0.17 | 0.81 | 2 | 0.9981 | 0.34 |
+| efficientnetb0 | EfficientNet-B0 | ImageNet-1K | Supervised | 5 | 0.9102 | 0.0416 | 0.7801 | 0.0636 | 0.7778 | 0.0753 | 0.7838 | 0.0625 | 0.49 | 0.0728 | 0.38 | 0.58 | 2 | 0.9534 | 0.38 |
+| vitb16_imagenet_sup | ViT-Base/16 | ImageNet-1K | Supervised | 5 | 0.8986 | 0.0406 | 0.7642 | 0.0674 | 0.7809 | 0.0707 | 0.7516 | 0.0853 | 0.374 | 0.2523 | 0.13 | 0.69 | 2 | 0.9535 | 0.17 |
+| vitb16_imagenet | ViT-Base/16 | ImageNet | Self-sup. (DINOv1) | 5 | 0.9319 | 0.0268 | 0.7786 | 0.0627 | 0.9 | 0.0676 | 0.6917 | 0.0915 | 0.384 | 0.2971 | 0.1 | 0.81 | 2 | 0.9779 | 0.1 |
+| vits16_imagenet_hf | ViT-Small/16 | ImageNet-1K | Supervised | 5 | 0.9203 | 0.0379 | 0.7928 | 0.0594 | 0.8305 | 0.0994 | 0.7688 | 0.0867 | 0.262 | 0.1132 | 0.1 | 0.38 | 2 | 0.9801 | 0.1 |
+| vits16_imagenet | ViT-Small/16 | ImageNet | Self-sup. (DINOv1) | 5 | 0.9156 | 0.0311 | 0.7479 | 0.0804 | 0.8378 | 0.1664 | 0.7099 | 0.138 | 0.448 | 0.3486 | 0.1 | 0.9 | 2 | 0.9706 | 0.1 |
+| vits16_gastronet | ViT-Small/16 | GastroNet-5M | Self-sup. (DINOv1) | 5 | 0.9592 | 0.0405 | 0.8269 | 0.0805 | 0.8855 | 0.1167 | 0.7839 | 0.0937 | 0.26 | 0.3578 | 0.1 | 0.9 | 2 | 0.9993 | 0.1 |

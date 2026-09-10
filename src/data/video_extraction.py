@@ -23,7 +23,7 @@ def build_video_index_generic(video_dir: Path) -> dict[str, Path]:
     return idx
 
 
-def sample_timestamps(start_s: float, end_s: float, fps_target: float) -> list[float]:
+def _sample_timestamps(start_s: float, end_s: float, fps_target: float) -> list[float]:
     """Generate timestamps spaced 1/fps_target apart between start_s and end_s."""
     if fps_target <= 0 or end_s <= start_s:
         return []
@@ -58,7 +58,7 @@ def extract_frames_from_video(
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / fps if fps > 0 else 0.0
 
-    timestamps = sample_timestamps(start_s, end_s, fps_target)
+    timestamps = _sample_timestamps(start_s, end_s, fps_target)
     saved: list[Path] = []
 
     for ts in timestamps:

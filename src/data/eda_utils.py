@@ -257,12 +257,12 @@ def plot_frames_per_patient(
     summary = build_patient_summary(manifest)
     x = range(len(summary))
     fig, ax = plt.subplots(figsize=(max(10, len(summary) * 0.45), 6))
-    ax.bar(x, summary["non_ulcer_frames"], color="#2ecc71", edgecolor="black", label="NonUlcer")
+    ax.bar(x, summary["non_ulcer_frames"], color="#00913c", edgecolor="black", label="NonUlcer")
     ax.bar(
         x,
         summary["ulcer_frames"],
         bottom=summary["non_ulcer_frames"],
-        color="#e74c3c",
+        color="#a71202",
         edgecolor="black",
         label="Ulcer",
     )

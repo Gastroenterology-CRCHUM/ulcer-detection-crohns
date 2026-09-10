@@ -89,40 +89,16 @@ RUN_DEFAULTS: dict = {
 # Supervised ImageNet LRs follow standard fine-tuning convention (1e-4 / 1e-5).
 DEFAULT_PLAN: list[dict] = [
     # ── ResNet-50 ────────────────────────────────────────────────────────
-    {
-        "model": "resnet50_imagenet_sup",
-        "freeze_layers": 0,
-        "lr": 1e-4,
-        "epochs": 100,
-        "batch_size": 64,
-    },
+    {"model": "resnet50_imagenet_sup", "freeze_layers": 0, "lr": 1e-4, "epochs": 100, "batch_size": 64},
     {"model": "resnet50_imagenet", "freeze_layers": 0, "lr": 1e-5, "epochs": 100, "batch_size": 64},
-    {
-        "model": "resnet50_gastronet",
-        "freeze_layers": 0,
-        "lr": 1e-6,
-        "epochs": 100,
-        "batch_size": 64,
-    },
+    {"model": "resnet50_gastronet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
     # ── EfficientNet-B0 ──────────────────────────────────────────────────
     {"model": "efficientnetb0", "freeze_layers": 0, "lr": 3e-5, "epochs": 100, "batch_size": 64},
     # ── ViT-Base/16 ──────────────────────────────────────────────────────
-    {
-        "model": "vitb16_imagenet_sup",
-        "freeze_layers": 0,
-        "lr": 1e-4,
-        "epochs": 100,
-        "batch_size": 64,
-    },
+    {"model": "vitb16_imagenet_sup", "freeze_layers": 0, "lr": 1e-4, "epochs": 100, "batch_size": 64},
     {"model": "vitb16_imagenet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
     # ── ViT-Small/16 ─────────────────────────────────────────────────────
-    {
-        "model": "vits16_imagenet_hf",
-        "freeze_layers": 0,
-        "lr": 1e-5,
-        "epochs": 100,
-        "batch_size": 64,
-    },
+    {"model": "vits16_imagenet_hf", "freeze_layers": 0, "lr": 1e-5, "epochs": 100, "batch_size": 64},
     {"model": "vits16_imagenet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
     {"model": "vits16_gastronet", "freeze_layers": 0, "lr": 1e-6, "epochs": 100, "batch_size": 64},
 ]

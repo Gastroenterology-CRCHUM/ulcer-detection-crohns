@@ -7,7 +7,7 @@ from src.data.splits import (
     assign_train_val_test_split,
     build_strat_bin,
     modal_patient_label,
-    split_with_rare_strata,
+    _split_with_rare_strata,
     ulcer_presence_bin,
 )
 
@@ -89,7 +89,7 @@ class TestSplitWithRareStrata:
     def test_all_common_stratified(self):
         ids = [f"p{i:03d}" for i in range(20)]
         labels = ["a"] * 10 + ["b"] * 10
-        train, val, test, strategy, rare = split_with_rare_strata(
+        train, val, test, strategy, rare = _split_with_rare_strata(
             ids, labels, 0.7, 0.15, 0.15, random_seed=42
         )
         assert len(train) + len(val) + len(test) == 20
@@ -99,7 +99,7 @@ class TestSplitWithRareStrata:
         ids = [f"p{i:03d}" for i in range(10)]
         # "rare_label" only appears once — must be manually assigned
         labels = ["common"] * 9 + ["rare_label"]
-        train, val, test, strategy, rare = split_with_rare_strata(
+        train, val, test, strategy, rare = _split_with_rare_strata(
             ids, labels, 0.7, 0.15, 0.15, random_seed=42
         )
         assert len(train) + len(val) + len(test) == 10
@@ -112,13 +112,13 @@ class TestSplitWithRareStrata:
     def test_all_ids_covered(self):
         ids = list(range(30))
         labels = ["x"] * 15 + ["y"] * 15
-        train, val, test, _, _ = split_with_rare_strata(ids, labels, 0.6, 0.2, 0.2, random_seed=7)
+        train, val, test, _, _ = _split_with_rare_strata(ids, labels, 0.6, 0.2, 0.2, random_seed=7)
         assert set(train) | set(val) | set(test) == set(ids)
 
     def test_single_item_stratum(self):
         ids = ["lonely"]
         labels = ["singleton"]
-        train, val, test, strategy, rare = split_with_rare_strata(
+        train, val, test, strategy, rare = _split_with_rare_strata(
             ids, labels, 0.7, 0.15, 0.15, random_seed=0
         )
         assert len(train) + len(val) + len(test) == 1

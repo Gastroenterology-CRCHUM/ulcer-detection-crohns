@@ -87,6 +87,12 @@ class ModelRegistryEntry:
     """Pretraining dataset (e.g. 'ImageNet', 'GastroNet-5M')."""
     pretrain_method: str = ""
     """Pretraining method (e.g. 'Supervised', 'Self-sup. (DINOv1)')."""
+    pretrain_variant: str = ""
+    """Weight-provenance qualifier, set only when it distinguishes a config from
+    another one otherwise identical in (architecture, pretrain_data, pretrain_method)
+    -- e.g. 'timm AugReg' on vits16_imagenet_hf, the one supervised checkpoint that
+    isn't a plain torchvision default. Used by src.evaluation.style.config_label()
+    for the long display form; empty everywhere else."""
 
     def __str__(self) -> str:
         return self.description
@@ -232,6 +238,7 @@ MODEL_REGISTRY: dict[str, ModelRegistryEntry] = {
         architecture="ViT-Small/16",
         pretrain_data="ImageNet-1K",
         pretrain_method="Supervised",
+        pretrain_variant="timm AugReg",
     ),
     "vits16_imagenet": ModelRegistryEntry(
         builder=torch.hub.load,

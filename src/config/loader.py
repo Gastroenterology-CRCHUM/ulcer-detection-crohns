@@ -112,64 +112,8 @@ def _load_yaml_config(path: Path) -> Config:
         return _build_config_from_dict(yaml.safe_load(f) or {})
 
 
-def load_model_config(config_path: Path | None = None) -> ModelConfig:
-    """Load only model configuration.
-
-    Args:
-        config_path: Path to config JSON/YAML file (optional).
-
-    Returns:
-        ModelConfig instance.
-    """
-    if config_path is None:
-        return ModelConfig()
-
-    config = load_config(config_path)
-    return config.model
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Legacy compatibility layer (backward compatibility with old dict-based config)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def legacy_dict_to_config(config_dict: dict) -> Config:
-    """Convert legacy dict-based CONFIG to new Config object.
-
-    This provides backward compatibility for code that uses the old
-    dictionary-based configuration format.
-    """
-    model_config = ModelConfig(
-        model=config_dict.get("model", "vitb16_hf"),
-        num_classes=config_dict.get("num_classes", 1),
-        freeze_layers=config_dict.get("freeze_layers", -1),
-        threshold=config_dict.get("threshold", 0.5),
-        dropout_rate=config_dict.get("dropout_rate", 0.5),
-        head_type=config_dict.get("head_type", "linear"),
-    )
-
-    training_config = TrainingConfig(
-        batch_size=config_dict.get("batch_size", 64),
-        epochs=config_dict.get("epochs", 100),
-        learning_rate=config_dict.get("learning_rate", 5e-5),
-        optimizer=config_dict.get("optimizer", "AdamW"),
-        weight_decay=config_dict.get("weight_decay", 1e-2),
-        label_smoothing=config_dict.get("label_smoothing", 0.0),
-        class_weights=config_dict.get("class_weights"),
-        dropout_rate=config_dict.get("dropout_rate", 0.5),
-        lr_patience=config_dict.get("lr_patience", 10),
-        lr_factor=config_dict.get("lr_factor", 0.5),
-        es_patience=config_dict.get("es_patience", 20),
-        equalize=config_dict.get("equalize", True),
-        num_workers=config_dict.get("num_workers", 8),
-        device_id=config_dict.get("device", 0),
-    )
-
-    return Config(model=model_config, training=training_config)
-
-
 def config_to_dict(config: Config) -> dict:
-    """Convert Config object back to old dict format for backward compatibility."""
+    """Convert Config object back to old dict format for mlflow logging."""
 
     result = {
         "model": config.model.model,

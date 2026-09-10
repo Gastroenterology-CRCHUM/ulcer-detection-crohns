@@ -10,7 +10,7 @@ Public API
 ----------
 plot_roc_curve(labels, probs, threshold, title)         -> Figure
 plot_confusion_matrix(cm, threshold, class_names)       -> Figure
-plot_roc_curves(roc_data, title)                        -> Figure
+plot_roc_curves(roc_data, title, *, ax=None)            -> Figure
 plot_delong_heatmap(p_matrix, df_summary, alpha)        -> Figure
 """
 
@@ -25,6 +25,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, roc_curve
+
+from src.evaluation.style import STATUS_NEUTRAL, STATUS_NOT_SIGNIFICANT, STATUS_SIGNIFICANT
 
 # ---------------------------------------------------------------------------
 # Single-model ROC curve
@@ -196,6 +198,8 @@ def plot_confusion_matrix_multiclass(
 def plot_roc_curves(
     roc_data: list[dict],
     title: str = "ROC curves, Ulcer detection",
+    *,
+    ax: plt.Axes | None = None,
 ) -> plt.Figure:
     """Overlay ROC curves for several models on the same axes.
 
@@ -204,19 +208,33 @@ def plot_roc_curves(
                     "name"  (str)   - label shown in the legend,
                     "fpr"   (array) - false positive rates,
                     "tpr"   (array) - true positive rates,
-                    "auc"   (float) - AUROC value.
-        title:    Figure title.
+                    "auc"   (float) - AUROC value,
+                    "color" (str, optional) - explicit line color; omit to use
+                            matplotlib's default cycle.
+        title:    Panel/figure title.
+        ax:       Draw onto this existing Axes instead of creating a new
+                  Figure -- e.g. to place two ROC panels (frame/clip level)
+                  side by side in one figure. The legend is still drawn on
+                  `ax`; the CALLER owns fig-level layout (tight_layout /
+                  savefig) in that case. Omit for the original one-panel
+                  behavior (a new Figure is created and fully laid out here).
 
     Returns:
-        matplotlib Figure (not yet saved or shown).
+        The Figure `ax` belongs to (a new one-axes Figure when ax is None).
     """
-    fig, ax = plt.subplots(figsize=(8, 8))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 8))
+        owns_figure = True
+    else:
+        fig = ax.figure
+        owns_figure = False
 
     for entry in roc_data:
         ax.plot(
             entry["fpr"],
             entry["tpr"],
             linewidth=2,
+            color=entry.get("color"),
             label=f"{entry['name']}  (AUC = {entry['auc']:.3f})",
         )
 
@@ -226,10 +244,22 @@ def plot_roc_curves(
     ax.set_xlabel("1 − Specificity  (FPR)")
     ax.set_ylabel("Sensitivity  (TPR)")
     ax.set_title(title)
-    ax.legend(loc="lower right")
     ax.grid(alpha=0.3)
 
-    fig.tight_layout()
+    n_series = len(roc_data) + 1
+    ncol = 2 if n_series > 5 else 1
+    if owns_figure:
+        fig.tight_layout(rect=(0, 0.20, 1, 1))
+        ax.legend(
+            loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=ncol, fontsize=9, frameon=True
+        )
+    else:
+        # Each panel keeps its OWN legend (AUC differs per panel, e.g. frame
+        # vs clip level, so a single shared legend can't show both) -- the
+        # caller reserves bottom margin for it via its own tight_layout rect.
+        ax.legend(
+            loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=ncol, fontsize=8, frameon=True
+        )
     return fig
 
 
@@ -238,136 +268,139 @@ def plot_roc_curves(
 # ---------------------------------------------------------------------------
 
 
-def _delong_cell_color(p: float, alpha: float) -> list[float]:
-    """RGBA color for an off-diagonal DeLong heatmap cell.
-
-    Green (significant) when p < alpha; red otherwise; dark background for NaN.
-    """
-    if np.isnan(p):
-        return [0.05, 0.05, 0.1, 1.0]
-    if p < alpha:
-        intensity = max(0.4, 1 - p / alpha * 0.6)
-        return [0.0, intensity * 0.8, intensity * 0.4, 1.0]
-    intensity = max(0.4, 1 - (p - alpha) / (1 - alpha) * 0.5)
-    return [intensity * 0.9, 0.1, 0.1, 1.0]
-
-
 def plot_delong_heatmap(
     p_matrix: pd.DataFrame,
     df_summary: pd.DataFrame,
     alpha: float = 0.05,
+    title: str | None = None,
 ) -> plt.Figure:
     """Visualise DeLong p-value matrix and pairwise comparison table.
 
-    Colour coding:
-      - Green  → significant difference  (p < alpha)
-      - Red    → non-significant difference
-      - Grey   → diagonal (self-comparison)
+    Colour coding (categorical, not a gradient -- consistent with every other
+    significance display in this project, see src/evaluation/style.py and
+    src/evaluation/rank_tests.py::plot_wilcoxon_pmatrix):
+      - Green (STATUS_SIGNIFICANT)     -> p < alpha
+      - Pale red (STATUS_NOT_SIGNIFICANT) -> p >= alpha
+      - Light gray -> diagonal / lower triangle (self-comparison, not shown)
 
     Args:
         p_matrix:   N×N DataFrame of p-values (output of delong_matrix).
         df_summary: Pairwise comparison DataFrame (output of delong_matrix).
         alpha:      Significance threshold.
+        title:      Optional title override; omit for the default
+                    "DeLong test p-values (α = ...)".
 
     Returns:
         matplotlib Figure (not yet saved or shown).
     """
     names = p_matrix.index.tolist()
     n = len(names)
+    max_name_len = max((len(str(name)) for name in names), default=8)
+    # Wide enough for long config names (e.g. "resnet50_imagenet_sup") in the
+    # right-hand table without truncating -- short names (e.g. "fold_1") just
+    # get a smaller, still-comfortable width.
+    fig_width = max(14, 9 + max_name_len * 0.35)
+    n_pairs = len(df_summary)
+    # Table height must fit every pair, not just the heatmap's n models --
+    # with n>~8 models there are more pairs (n*(n-1)/2) than rows a
+    # fixed-height table could show; a silent height-based cutoff would drop
+    # rows sorted to the bottom by ascending p-value, i.e. exactly the
+    # non-significant ones, making the table look more uniformly significant
+    # than the heatmap actually shows.
+    fig_height = max(5, n * 0.5, 1.3 + n_pairs * 0.22)
 
-    fig, (ax_heat, ax_table) = plt.subplots(1, 2, figsize=(14, 5))
-    fig.patch.set_facecolor("#1a1a2e")
+    fig, (ax_heat, ax_table) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
 
     # ── Heatmap ──────────────────────────────────────────────────────────────
-    ax_heat.set_facecolor("#16213e")
-
     display = p_matrix.copy().astype(float)
     for i in range(n):
-        for j in range(i + 1):  # lower triangle + diagonal → NaN
+        for j in range(i + 1):  # lower triangle + diagonal -> NaN
             display.iloc[i, j] = np.nan
 
-    colors = np.zeros((n, n, 4))
+    diag_gray = mcolors.to_rgba("#e1e0d9")
+    sig_color = mcolors.to_rgba(STATUS_SIGNIFICANT)
+    not_sig_color = mcolors.to_rgba(STATUS_NOT_SIGNIFICANT)
+    colors = np.ones((n, n, 4))
     for i in range(n):
         for j in range(n):
-            if i == j:
-                colors[i, j] = [0.2, 0.2, 0.3, 1]
+            if i >= j:
+                colors[i, j] = diag_gray
             else:
-                p = display.iloc[i, j] if i < j else float("nan")
-                colors[i, j] = _delong_cell_color(p, alpha)
+                p = display.iloc[i, j]
+                colors[i, j] = sig_color if p < alpha else not_sig_color
 
     ax_heat.imshow(colors, aspect="auto")
 
     for i in range(n):
         for j in range(i + 1, n):
             p = display.iloc[i, j]
-            if not np.isnan(p):
-                txt = f"p={p:.3f}" if p >= 0.001 else "p<0.001"
-                ax_heat.text(
-                    j,
-                    i,
-                    txt,
-                    ha="center",
-                    va="center",
-                    fontsize=8,
-                    color="white",
-                    fontweight="bold",
-                )
-        ax_heat.text(i, i, "—", ha="center", va="center", fontsize=10, color="#666688")
+            txt = f"p={p:.3f}" if p >= 0.001 else "p<0.001"
+            ax_heat.text(
+                j, i, txt, ha="center", va="center", fontsize=8,
+                fontweight="bold" if p < alpha else "normal", color="#0b0b0b",
+            )
+        ax_heat.text(i, i, "-", ha="center", va="center", fontsize=10, color=STATUS_NEUTRAL)
 
     ax_heat.set_xticks(range(n))
-    ax_heat.set_xticklabels(names, rotation=30, ha="right", color="#aaaacc", fontsize=9)
+    ax_heat.set_xticklabels(names, rotation=30, ha="right", fontsize=9)
     ax_heat.set_yticks(range(n))
-    ax_heat.set_yticklabels(names, color="#aaaacc", fontsize=9)
-    ax_heat.set_title(f"DeLong test p-values  (α = {alpha})", color="white", fontsize=11, pad=10)
+    ax_heat.set_yticklabels(names, fontsize=9)
+    ax_heat.set_xticks(np.arange(-0.5, n, 1), minor=True)
+    ax_heat.set_yticks(np.arange(-0.5, n, 1), minor=True)
+    ax_heat.grid(which="minor", color="white", linewidth=1.5)
+    ax_heat.tick_params(which="minor", length=0)
+    ax_heat.set_title(title or f"DeLong test p-values  (alpha = {alpha})", fontsize=11, pad=10)
 
     legend_elems = [
-        mpatches.Patch(facecolor="#00cc66", label=f"Significant  (p < {alpha})"),
-        mpatches.Patch(facecolor="#cc1111", label=f"Non-significant  (p ≥ {alpha})"),
+        mpatches.Patch(facecolor=STATUS_SIGNIFICANT, label=f"Significant  (p < {alpha})"),
+        mpatches.Patch(facecolor=STATUS_NOT_SIGNIFICANT, label=f"Not significant  (p >= {alpha})"),
     ]
     ax_heat.legend(
-        handles=legend_elems, loc="lower right", facecolor="#1a1a2e", labelcolor="white", fontsize=8
+        handles=legend_elems, loc="upper center", bbox_to_anchor=(0.5, -0.18),
+        ncol=2, fontsize=8, frameon=False,
     )
 
     # ── Summary table ─────────────────────────────────────────────────────────
-    ax_table.set_facecolor("#16213e")
     ax_table.axis("off")
 
     y = 0.97
     ax_table.text(
-        0.05,
-        y,
-        "DeLong pairwise comparisons",
-        color="white",
-        fontsize=11,
-        fontweight="bold",
-        transform=ax_table.transAxes,
-        va="top",
+        0.05, y, "DeLong pairwise comparisons", fontsize=11, fontweight="bold",
+        transform=ax_table.transAxes, va="top",
     )
     y -= 0.06
 
-    headers = ["Model A", "Model B", "ΔAUC", "z", "p-value", "sig."]
-    col_x = [0.00, 0.28, 0.56, 0.70, 0.83, 0.96]
+    headers = ["Model A", "Model B", "AUC delta", "z", "p-value", "sig."]
+    # Model A/B each get width proportional to the longest name actually present,
+    # instead of a fixed fraction sized for short names like "fold_1"/"ensemble".
+    name_col_width = min(0.30, 0.09 + max_name_len * 0.011)
+    col_x = [
+        0.00,
+        name_col_width,
+        2 * name_col_width,
+        2 * name_col_width + 0.14,
+        2 * name_col_width + 0.27,
+        2 * name_col_width + 0.40,
+    ]
 
     for hdr, x in zip(headers, col_x):
         ax_table.text(
-            x + 0.02,
-            y,
-            hdr,
-            color="#aaaacc",
-            fontsize=8,
-            fontweight="bold",
-            transform=ax_table.transAxes,
-            va="top",
+            x + 0.02, y, hdr, color=STATUS_NEUTRAL, fontsize=8, fontweight="bold",
+            transform=ax_table.transAxes, va="top",
         )
     y -= 0.04
-    ax_table.axhline(y, color="#333355", linewidth=0.8, xmin=0.02, xmax=0.98)
+    ax_table.axhline(y, color="#e1e0d9", linewidth=0.8, xmin=0.02, xmax=0.98)
     y -= 0.01
 
+    # Sized in _fig_height above so every row fits -- no height-based cutoff,
+    # since dropping rows here would silently hide exactly the non-significant
+    # (highest p-value, sorted-to-the-bottom) pairs.
+    row_step = y / max(n_pairs, 1)
     for _, row in df_summary.iterrows():
-        color = "#2ecc71" if row["significant"] else "#e74c3c"
+        color = STATUS_SIGNIFICANT if row["significant"] else "#0b0b0b"
         vals = [
-            str(row["Model A"])[:18],
-            str(row["Model B"])[:18],
+            str(row["Model A"])[:28],
+            str(row["Model B"])[:28],
             f"{row['ΔAUC']:+.4f}",
             f"{row['z']:.2f}",
             f"{row['p-value']:.4f}" if row["p-value"] >= 0.001 else "<0.001",
@@ -377,12 +410,9 @@ def plot_delong_heatmap(
             ax_table.text(
                 x + 0.02, y, val, color=color, fontsize=7.5, transform=ax_table.transAxes, va="top"
             )
-        y -= 0.055
-        if y < 0.02:
-            break
+        y -= row_step
 
     fig.tight_layout(pad=1.5)
-    plt.grid(False)
     return fig
 
 
