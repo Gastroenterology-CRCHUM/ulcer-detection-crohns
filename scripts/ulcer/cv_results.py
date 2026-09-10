@@ -48,7 +48,6 @@ from src.evaluation.style import (
     config_label,
     config_labels,
     metric_label,
-    slug,
 )
 
 plt.style.use("seaborn-v0_8-whitegrid")
@@ -59,24 +58,12 @@ CV_THRESHOLD = 0.5
 # Parent-logged CV aggregates
 _VAL_METRICS = ("auroc", "f1", "precision", "recall")
 
-# Held-out per-fold metrics
+# Held-out per-fold metrics logged on each CV child run
 _REPORT_METRICS = ("auroc", "sensitivity", "specificity", "f1")
-
-# Per-fold held-out metrics are the only place in the CV runs where all four
-# reporting metrics exist at BOTH frame and clip level: the validation folds log
-# neither specificity nor any clip-level metric (see run_modes.py's CV loop,
-# which logs only fold_val_{f1,precision,recall,auroc}), and validation
-# clip-level cannot be recovered post-hoc because only val_probs/val_labels are
-# saved per fold -- never the clip_ids needed to aggregate by clip.
 _HELDOUT_LEVELS = {
     "frame": "heldout__{metric}_mean",
     "clip": "heldout_clip__{metric}_mean",
 }
-
-
-# ---------------------------------------------------------------------------
-# MLflow loading -- metrics/params only, no artifacts
-# ---------------------------------------------------------------------------
 
 
 def _load_configs(client: MlflowClient, exp_id: str) -> dict:
@@ -120,14 +107,9 @@ def _parent_param(parent, key: str, default=None):
     return parent.data.params.get(key, default)
 
 
-# ---------------------------------------------------------------------------
-# Validation-fold specificity/sensitivity, recomputed from artifacts
-# ---------------------------------------------------------------------------
-
 # Metrics recomputed from the val-fold probability artifacts. AUROC and F1 are
 # recomputed too (not needed -- they are already logged) purely so each fold
-# can be cross-checked against its logged values; a mismatch means the
-# artifacts and the logged metrics disagree and the fold must not be trusted.
+# can be cross-checked against its logged values
 _VAL_ARTIFACT_METRICS = ("AUROC", "Sensitivity", "Specificity", "F1")
 
 # Recomputed-vs-logged agreement tolerance. Logged metrics are full float64,
@@ -178,11 +160,6 @@ def _val_fold_metrics_from_artifacts(child, fold: int) -> dict | None:
     return values
 
 
-# ---------------------------------------------------------------------------
-# Plotting -- shared bar-chart primitives
-# ---------------------------------------------------------------------------
-
-
 def _draw_grouped_bars(ax, keys, labels, metric_values: dict, metric_stds: dict, xlabels) -> None:
     """Draw one grouped-bar panel: metrics on the x-axis, one bar per model,
     error bars = std across folds. Used by the held-out two-level chart.
@@ -190,10 +167,6 @@ def _draw_grouped_bars(ax, keys, labels, metric_values: dict, metric_stds: dict,
     keys/labels are separate parameters, never one list: config_color raises
     on anything that isn't a raw MODEL_REGISTRY key, so the color lookup
     always uses `keys` while the legend text uses `labels`.
-
-    Values/stds may be NaN (a config whose folds never logged that metric);
-    matplotlib skips NaN bars, but a NaN in ``yerr`` blows up the errorbar
-    transform, so stds are zeroed out for drawing only.
     """
     metric_names = list(metric_values.keys())
     n_models = len(keys)
@@ -212,14 +185,11 @@ def _draw_grouped_bars(ax, keys, labels, metric_values: dict, metric_stds: dict,
             capsize=2.5,
             label=label,
             color=config_color(key),
-            # Thin mid-gray whiskers: at 9 configs x 4 metrics the default
-            # heavy black errorbars visually outweigh the bars they annotate.
             error_kw={"elinewidth": 0.9, "capthick": 0.9, "ecolor": "#4a4a4a"},
         )
     ax.set_xticks(x + width * (n_models - 1) / 2)
     ax.set_xticklabels(xlabels, rotation=0)
-    # Bars stay zero-baselined -- truncating the axis to the 0.7-1.0 band where
-    # the values live would exaggerate the between-config differences.
+
     ax.set_ylim(0, 1.05)
 
 
@@ -247,9 +217,7 @@ def _plot_model_bar(
 
 def _plot_auroc_legend_bar(keys, means, stds, title, output_path, *, ref_line=None, ref_label=None) -> None:
     """One tightly-packed cluster of bars (all models in a single 'AUROC'
-    x-slot, narrow width) -- model identity AND its numeric mean +/- std move
-    into the legend instead of rotated x-tick labels, since with only one
-    metric there is nothing else competing for x-axis space."""
+    x-slot)"""
     labels = [f"{config_label(k)}  ({m:.3f} +/- {s:.3f})" for k, m, s in zip(keys, means, stds)]
     fig, ax = plt.subplots(figsize=(8.5, 6.4))
     _draw_grouped_bars(
@@ -265,66 +233,8 @@ def _plot_auroc_legend_bar(keys, means, stds, title, output_path, *, ref_line=No
     plt.close(fig)
 
 
-def _plot_two_level_grouped_bar(keys, stats: dict, title, output_path) -> None:
-    """AUROC / Sensitivity / Specificity / F1 as mean +/- std across folds, with
-    frame level on the top panel and clip level on the bottom panel.
-
-    Args:
-        keys:   Config keys, one bar per config in each metric group.
-        stats:  {level: (metric_values, metric_stds)} for levels "frame" and
-                "clip", each a {metric: [value per config]} dict.
-        title:  Figure suptitle.
-    """
-    labels = config_labels(keys)
-    xlabels = [metric_label(m) for m in _REPORT_METRICS]
-    fig, axes = plt.subplots(
-        2, 1, figsize=(max(11, len(_REPORT_METRICS) * 2.8), 8.6), sharex=True, sharey=True
-    )
-    panel_titles = {"frame": "Frame level", "clip": "Clip level (mean-probability aggregation)"}
-
-    for ax, level in zip(axes, ("frame", "clip")):
-        values, stds = stats[level]
-        _draw_grouped_bars(ax, keys, labels, values, stds, xlabels)
-        ax.set_title(panel_titles[level], fontsize=11, fontweight="bold")
-        ax.set_ylabel("Score (mean +/- std)", fontsize=9)
-        # A config can be missing a whole level (clip metrics were backfilled
-        # post-hoc and cover fewer folds); say so rather than showing a gap
-        # that reads like a score of zero.
-        if all(np.isnan(values[m]).all() for m in _REPORT_METRICS):
-            ax.text(
-                0.5,
-                0.5,
-                f"No {level}-level metrics logged for these configurations",
-                ha="center",
-                va="center",
-                fontsize=11,
-                color=STATUS_NEUTRAL,
-                transform=ax.transAxes,
-            )
-
-    fig.suptitle(title, fontsize=12, fontweight="bold")
-    fig.tight_layout(rect=(0, 0.10, 1, 0.97))
-    axes[1].legend(
-        loc="upper center", bbox_to_anchor=(0.5, -0.10), ncol=3, fontsize=8, frameon=True
-    )
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# Plotting -- CV fold x model AUROC matrix
-# ---------------------------------------------------------------------------
-
 def _plot_fold_matrix(df: pd.DataFrame, output_path) -> None:
-    """Fold x model AUROC as a plain table, row order = architecture (as
-    given -- callers pass a frame already reindexed to MODEL_REGISTRY order,
-    matching every other table in this file). Each Config cell keeps its
-    config_color facecolor; the maximum value in each Fold column is bolded
-    so the reader can spot which model won each fold at a glance. A "Fold
-    mean" row is appended in italic neutral text -- fold difficulty and
-    model quality are otherwise superimposed with no way to separate them by
-    eye (a fold that is uniformly easier/harder for every model can look
-    like a model effect)."""
+    """Fold x model AUROC as a plain table, row order = architecture."""
     fold_cols = [c for c in df.columns if c not in ("Mean", "Std")]
     header = ["Config"] + [f"Fold {c.split('_')[-1]}" for c in fold_cols] + ["Mean", "Std"]
 
@@ -350,9 +260,6 @@ def _plot_fold_matrix(df: pd.DataFrame, output_path) -> None:
     cell_text.append(["Fold mean"] + [f"{v:.3f}" for v in fold_means] + ["", ""])
     bold_mask.append([False] * len(header))
 
-    # ax.table does not size columns by content; derive explicit colWidths
-    # and figure width from the actual longest string per column (same fix
-    # as _plot_main_table -- the long Config strings clip otherwise).
     col_max_len = [
         max(len(str(row[j])) for row in [header] + cell_text) for j in range(len(header))
     ]
@@ -387,23 +294,13 @@ def _plot_fold_matrix(df: pd.DataFrame, output_path) -> None:
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Plotting -- main table
-# ---------------------------------------------------------------------------
-
-
 def _plot_main_table(df: pd.DataFrame, output_path) -> None:
     """Render the main CV comparison table as an image (not just CSV/MD) so
     there's a single figure a reader can drop straight into a slide/manuscript.
 
     AUROC only (mean +/- std): the one threshold-free validation-fold metric,
     see module docstring. Sensitivity/specificity/F1/precision stay out of
-    this headline table -- they are threshold-dependent and that threshold
-    was tuned on this same validation fold, which is not a fair cross-model
-    comparison. They remain in cv_per_fold_val_metrics.csv as diagnostic
-    detail. The Config column is the long display name, which already states
-    architecture/pretrain data/method, so those no longer need separate
-    columns here (they stay as their own columns in the CSV/MD).
+    this headline table.
     """
     header = ["Config", metric_label("auroc"), "Best fold", "Best-fold AUROC", "Best-fold thr"]
 
@@ -419,11 +316,6 @@ def _plot_main_table(df: pd.DataFrame, output_path) -> None:
             ]
         )
 
-    # ax.table does NOT size columns by content -- it splits the axes evenly
-    # by default, which clips the long Config strings (up to 54 chars for
-    # "ViT-Small/16, ImageNet-1K / Supervised (timm AugReg)"). Derive explicit
-    # colWidths and the figure width from the actual longest string per
-    # column instead of a fixed per-column inch guess.
     col_max_len = [
         max(len(str(row[j])) for row in [header] + cell_text) for j in range(len(header))
     ]
@@ -453,69 +345,14 @@ def _plot_main_table(df: pd.DataFrame, output_path) -> None:
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Aggregation
-# ---------------------------------------------------------------------------
-
-
-def _summarise_heldout_folds(fold_df: pd.DataFrame) -> pd.DataFrame:
-    """Collapse per-fold held-out metrics into mean/std across folds per config.
-
-    Returns one row per config with heldout_{level}_{metric}_{mean,std} columns
-    plus n_folds_{level}, the number of folds that actually logged that level
-    (clip metrics were backfilled post-hoc and cover fewer folds than frame).
-    Std uses ddof=1, matching the CV aggregates logged by run_modes.py, so a
-    single-fold config yields NaN rather than a misleading 0.
-    """
-    rows = []
-    for (model_key, architecture), sub in fold_df.groupby(
-        ["config", "architecture"], sort=False
-    ):
-        row: dict = {"config": model_key, "architecture": architecture}
-        for level in _HELDOUT_LEVELS:
-            cols = [f"heldout_{level}_{m}" for m in _REPORT_METRICS]
-            row[f"n_folds_{level}"] = int(sub[cols].notna().any(axis=1).sum())
-            for m, col in zip(_REPORT_METRICS, cols):
-                values = sub[col].dropna()
-                row[f"heldout_{level}_{m}_mean"] = (
-                    round(float(values.mean()), 4) if len(values) else float("nan")
-                )
-                row[f"heldout_{level}_{m}_std"] = (
-                    round(float(values.std(ddof=1)), 4) if len(values) > 1 else float("nan")
-                )
-        rows.append(row)
-    return pd.DataFrame(rows)
-
-
-def _heldout_panel_stats(df: pd.DataFrame) -> dict:
-    """Reshape a held-out summary frame into the {level: (values, stds)} form
-    _plot_two_level_grouped_bar expects."""
-    return {
-        level: (
-            {m: df[f"heldout_{level}_{m}_mean"].to_numpy(dtype=float) for m in _REPORT_METRICS},
-            {m: df[f"heldout_{level}_{m}_std"].to_numpy(dtype=float) for m in _REPORT_METRICS},
-        )
-        for level in _HELDOUT_LEVELS
-    }
-
-
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
-
-
 def process_experiment(
     experiment_name: str,
     output_dir,
     alpha: float = 0.05,
     dry_run: bool = False,
     with_val_specificity: bool = True,
-    heldout_output_dir=None,
 ) -> None:
-    cfg = get_default_paths()
     output_dir = Path(output_dir)
-    # Held-out figures belong with the other held-out results, not the CV ones.
-    heldout_dir = Path(heldout_output_dir) if heldout_output_dir else cfg.results_heldout_dir
     artifact_misses: list[str] = []
     crosscheck_failures: list[str] = []
 
@@ -531,9 +368,6 @@ def process_experiment(
         print("No CV configurations could be loaded, aborting.")
         return
 
-    # ------------------------------------------------------------------
-    # Main table (per config, parent-logged CV aggregates)
-    # ------------------------------------------------------------------
     main_rows = []
     fold_rows = []
     for model_key, data in configs.items():
@@ -553,10 +387,7 @@ def process_experiment(
         row["threshold_std"] = round(_parent_metric(parent, "cv_std_threshold"), 4)
         row["threshold_min"] = round(_parent_metric(parent, "cv_min_threshold"), 4)
         row["threshold_max"] = round(_parent_metric(parent, "cv_max_threshold"), 4)
-        # run_modes.py logs the "best_fold" PARAM 0-indexed (it prints best_fold+1
-        # but logs the raw index, see run_modes.py:890-895). Every other fold
-        # reference in this script is 1-based -- including the per-fold table's
-        # "fold" column below -- so normalise to 1-based here.
+
         best_fold_raw = _parent_param(parent, "best_fold")
         row["best_fold"] = int(best_fold_raw) + 1 if best_fold_raw is not None else None
         best_fold_auroc = _parent_param(parent, "best_fold_val_auroc")
@@ -581,10 +412,7 @@ def process_experiment(
                 "val_recall": child.data.metrics.get("fold_val_recall"),
                 "optimal_threshold": child.data.metrics.get("fold_optimal_threshold"),
             }
-            # Sensitivity is identical to the already-logged recall; specificity
-            # is not logged at all and has to come from the probability
-            # artifacts. Fall back to the logged recall for sensitivity so a
-            # missing artifact costs only specificity, not both.
+
             fold_row["val_sensitivity"] = child.data.metrics.get("fold_val_recall")
             fold_row["val_specificity"] = None
             if with_val_specificity:
@@ -632,21 +460,10 @@ def process_experiment(
     print(f"\nMain table: {len(main_df)} configs, per-fold table: {len(fold_df)} rows.")
     print(main_df.to_string(index=False))
 
-    heldout_df = _summarise_heldout_folds(fold_df)
-    print(f"\nHeld-out per-fold summary ({len(heldout_df)} configs):")
-    print(heldout_df.to_string(index=False))
-
-    # ------------------------------------------------------------------
-    # Friedman + Wilcoxon on validation-fold AUROC (the fair, threshold-free
-    # metric -- see module docstring). Supersedes the old
-    # scripts/ulcer/statistical_comparison.py, which read the metric off the
-    # wrong run (parent, where it was never logged) and depended on a
-    # scikit_posthocs/statsmodels combination broken in this environment.
-    # ------------------------------------------------------------------
+    # Friedman + Wilcoxon on validation-fold AUROC, the threshold-free metric
+    # (see module docstring).
     fold_auroc_wide = fold_df.pivot(index="config", columns="fold", values="val_auroc")
-    # run_friedman/plot_friedman_ranks want (blocks x models) -- fold_auroc_wide
-    # is (models x folds), the shape run_wilcoxon_matrix below needs, so transpose
-    # only for the Friedman call.
+
     friedman_stat, friedman_p = run_friedman(fold_auroc_wide.T)
     wilcoxon_p = run_wilcoxon_matrix(fold_auroc_wide)
     print(f"\nFriedman (CV val AUROC): chi2={friedman_stat:.4f}  p={friedman_p:.4f}")
@@ -684,36 +501,6 @@ def process_experiment(
         ref_label="0.5 (default)",
     )
 
-    # ------------------------------------------------------------------
-    # Held-out per-fold metrics: AUROC / sensitivity / specificity / F1,
-    # frame level above, clip level below. Global plus one per architecture.
-    # All four metrics are fair here (fixed threshold, applied -- not tuned
-    # -- on the held-out cohort), unlike the CV validation side above.
-    #
-    # These go to the held-out results directory, not the CV one -- they
-    # describe the held-out cohort, not the validation folds. The "perfold"
-    # in every filename distinguishes them from effect_decomposition.py's
-    # ENSEMBLE figures in the same directory (arch_<slug>_heldout_metrics.png),
-    # which average the 5 folds into one prediction and report bootstrap CIs
-    # rather than a mean +/- std across folds. Different statistic, different
-    # name, same directory.
-    # ------------------------------------------------------------------
-    heldout_dir.mkdir(parents=True, exist_ok=True)
-    heldout_df.to_csv(heldout_dir / "heldout_perfold_summary.csv", index=False)
-    _plot_two_level_grouped_bar(
-        heldout_df["config"].tolist(),
-        _heldout_panel_stats(heldout_df),
-        "Held-out cohort metrics per configuration (mean +/- std across the 5 CV folds)",
-        heldout_dir / "heldout_perfold_bar_chart.png",
-    )
-    for architecture, sub in heldout_df.groupby("architecture", sort=False):
-        _plot_two_level_grouped_bar(
-            sub["config"].tolist(),
-            _heldout_panel_stats(sub),
-            f"Held-out cohort metrics, {architecture} (mean +/- std across the 5 CV folds)",
-            heldout_dir / f"arch_{slug(architecture)}_heldout_perfold_bar.png",
-        )
-
     matrix_df = fold_auroc_wide.copy()
     matrix_df.columns = [f"fold_{c}" for c in matrix_df.columns]
     matrix_df["Mean"] = fold_auroc_wide.mean(axis=1)
@@ -741,7 +528,6 @@ def process_experiment(
     )
 
     print(f"\nCV outputs written to {output_dir}")
-    print(f"Held-out per-fold outputs written to {heldout_dir}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -752,11 +538,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--experiment", default="ulcer_detection")
     p.add_argument("--mlflow-uri", default=cfg.mlflow_db)
     p.add_argument("--output-dir", default=str(cfg.results_cv_dir))
-    p.add_argument(
-        "--heldout-output-dir",
-        default=str(cfg.results_heldout_dir),
-        help="Where the held-out per-fold figures go (they describe the held-out cohort, not the CV folds)",
-    )
     p.add_argument("--alpha", type=float, default=0.05)
     p.add_argument("--dry-run", action="store_true", help="Compute and print, skip writing files")
     p.add_argument(
@@ -783,5 +564,4 @@ if __name__ == "__main__":
         alpha=args.alpha,
         dry_run=args.dry_run,
         with_val_specificity=not args.no_val_specificity,
-        heldout_output_dir=args.heldout_output_dir,
     )

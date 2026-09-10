@@ -2,7 +2,7 @@
 
 Code for the paper:
 
-> **Domain-Specific Foundation Models Versus Conventional Deep Learning for Automated Ulcer Detection in Crohn's Disease**  
+> **Pretraining Method and Architecture, not Domain Specificity, Drive Artificial Intelligence Ulcer Detection Performance in Crohn's Disease**  
 > Yann-Raphael Berndt\*, Nikoo Mashayekhi\*, Chelssy Guerine Ingabire, Robert Battat, Michael Byrne, Daniel von Renteln; AI-CD working group  
 > \*Shared first authorship
 
@@ -44,7 +44,8 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 │   └── training/                         Training loop, run_split_mode, run_cv_mode
 ├── results/
 │   └── ulcer/
-│       ├── cv/                            CV result figures and tables (Figures 1–3, Tables 1–2)
+│       ├── cv/                            CV validation-fold figures and tables (Figures 1–3, Tables 1–2)
+│       ├── heldout/                       Held-out ensemble evaluation + effect decomposition figures/tables
 │       └── eda/                           Dataset EDA figures
 ├── data/
 │   └── ulcer/
@@ -290,15 +291,19 @@ python -m scripts.ulcer.cv_results --no-val-specificity
 ### Held-out ensemble evaluation + effect decomposition
 
 Averages each configuration's 5 CV folds' held-out frame probabilities into an
-ensemble, aggregates to clip level, and reports ensemble AUROC/metrics with a
-patient-clustered bootstrap CI, ROC curves, and Friedman/Wilcoxon rank tests.
-Decomposes the pretraining method effect (Supervised -> DINOv1) and corpus
-effect (ImageNet -> GastroNet-5M) across 5 architecture-matched pairs, with the
+ensemble, aggregates to clip level, and reports ensemble AUROC/metrics (both
+frame and clip level, each with a patient-clustered BCa bootstrap CI) and ROC
+curves. Significance testing on this side never uses a classical Wilcoxon,
+all 5 per-fold models are evaluated on the same fixed held-out cohort, so folds
+are not independent repeated measures there. Instead: a Friedman test on
+per-patient clip mean absolute error (blocks = the 19 patients) is the omnibus
+test, and a patient-clustered bootstrap plays Wilcoxon's pairwise role, for the
+5 pre-specified architecture-matched pairs and for the full exploratory 9x9
+matrix alike. Decomposes the pretraining method effect (Supervised -> DINOv1)
+and corpus effect (ImageNet -> GastroNet-5M) across those 5 pairs, with the
 patient-clustered bootstrap Delta-AUROC CI as the primary uncertainty statement
-and ensemble/best-fold DeLong kept alongside for traceability. Prints a
-LIMITATIONS section (patient-clustered CIs don't re-tune the threshold per
-resample, the 9x9 pairwise matrix is exploratory/uncorrected, etc.) at the end
-of every run.
+and ensemble/best-fold DeLong (Holm-Bonferroni-corrected) kept alongside for
+traceability.
 
 ```bash
 python -m scripts.ulcer.effect_decomposition

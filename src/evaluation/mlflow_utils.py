@@ -135,9 +135,6 @@ def log_split_metrics(metrics: dict, split: str, step: int | None = None) -> Non
         split   : "train" | "val" | "test".
         step    : epoch or fold (optional).
     """
-    # Only _mean values → mlflow.log_metrics (time-series capable, appear in Metrics tab).
-    # CI bounds (_lower/_upper) are stored in a JSON artifact via log_ci_artifact,
-    # they are not time-series data and must not generate spurious metric plots.
     means = {
         f"{split}__{k[1:].lower()}": v
         for k, v in metrics.items()

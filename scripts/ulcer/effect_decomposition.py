@@ -8,17 +8,17 @@ already-logged heldout frame probabilities (no retraining, no re-inference)
 into a single ensemble prediction per config, aggregates to clip level, and:
 
   1. Reports each config's ensemble AUROC (and 5 other metrics) with a
-     patient-clustered bootstrap CI (resampling the 19 heldout patients),
-     at BOTH clip level (primary -- the grain the pairwise tests below use)
-     and frame level (descriptive companion, same patient-level resampling),
-     plus ROC curves and rank tests at both levels.
+     patient-clustered, BCa-adjusted 95% bootstrap CI (resampling the 19
+     heldout patients (BCa, not the plain percentile method, since these
+     metrics are not symmetrically distributed)) at frame and clip level.
   2. Decomposes two pretraining effects across 5 architecture-matched pairs:
        method effect (Supervised -> DINOv1, ImageNet held constant)
        corpus effect (ImageNet -> GastroNet-5M, DINOv1 held constant)
      reporting, per pair: the plug-in ensemble DeltaAUROC with a patient-
-     clustered bootstrap CI (primary uncertainty statement) alongside
+     clustered BCa bootstrap CI (primary uncertainty statement) alongside
      ensemble DeLong and best-fold DeLong (both clip-level, non-clustered,
      kept for traceability against the clustered result).
+  3. Reports a full 9x9 pairwise patient-clustered bootstrap matrix (BCa).
 
 Usage
 -----
@@ -78,47 +78,12 @@ from src.evaluation.style import (
     config_color,
     config_label,
     config_labels,
-    level_label,
     metric_label,
     slug,
 )
 
 plt.style.use("seaborn-v0_8-whitegrid")
 
-# ---------------------------------------------------------------------------
-# Limitations (documentation only -- not printed at runtime; kept here for
-# whoever reads this analysis code / writes the manuscript's methods section)
-# ---------------------------------------------------------------------------
-#
-# - Patient-clustered bootstrap CIs resample patients but evaluate every
-#   non-AUROC metric at a FIXED threshold (the point estimate's own
-#   cv_mean_clip_threshold) -- they do not re-tune the threshold per
-#   resample, so the CI reflects patient-cohort sampling variability alone,
-#   not threshold instability.
-# - Ensemble/best-fold DeLong (both clip-level) are kept for traceability
-#   against the primary patient-clustered bootstrap CI, not as a second
-#   significance claim -- they treat clips as independent, which
-#   pseudo-replicates clips from the same patient.
-# - The full 9x9 pairwise bootstrap matrix is exploratory/traceability
-#   only: it is not corrected for multiple comparisons, and only 5 of its
-#   36 pairs are the pre-specified architecture-matched comparisons this
-#   script's primary claims rest on.
-# - Frame-level results throughout are descriptive companions, not a
-#   second significance claim -- clip-level is the grain the pairwise
-#   effect-decomposition tests are run on. The per-config ensemble-metrics
-#   table's frame-level 95% CI uses the SAME patient-clustered resampling
-#   as clip-level (resampling patients, not frames), so it is not a naive
-#   per-frame bootstrap; the per-fold dispersion table's frame-level values
-#   remain a simple mean +/- std across the 5 individually-trained fold
-#   models, not a bootstrap CI at all.
-# - When a parent run's predictions/heldout_best_fold_probs.npy artifact is
-#   missing or shape-mismatched, best_fold_clip_probs silently falls back
-#   to the ensemble prediction for that config (see the printed [warn] at
-#   load time) -- best-fold DeLong then compares the ensemble to itself.
-
-# ---------------------------------------------------------------------------
-# Comparison pairs (hardcoded -- see module docstring / plan for rationale)
-# ---------------------------------------------------------------------------
 
 PAIRS: list[dict] = [
     {
@@ -157,10 +122,6 @@ PAIRS: list[dict] = [
         "config_b": "vits16_gastronet",
     },
 ]
-
-# ---------------------------------------------------------------------------
-# Clip-level aggregation
-# ---------------------------------------------------------------------------
 
 
 def _aggregate_to_clip(
@@ -202,8 +163,8 @@ def _make_metric_bootstrap_fn(
     `labels`/the array `probs`/`preds` line up one-to-one with `patient_ids`.
 
     AUROC is threshold-free (probability-based). Every other metric is
-    evaluated at the FIXED `threshold` (the same one used for the point
-    estimate, e.g. cv_mean_clip_threshold) -- not re-optimized per bootstrap
+    evaluated at the fixed `threshold` (the same one used for the point
+    estimate, e.g. cv_mean_clip_threshold), not re-optimized per bootstrap
     resample, so the CI reflects sampling variability of the patient cohort
     alone, not threshold instability.
     """
@@ -226,11 +187,6 @@ def _make_metric_bootstrap_fn(
 
         return _specificity_fn
     raise ValueError(f"Unknown metric: {metric_name}")
-
-
-# ---------------------------------------------------------------------------
-# Per-config data loading
-# ---------------------------------------------------------------------------
 
 
 def _load_config(
@@ -358,11 +314,6 @@ def _load_all_configs(
         if parent is None:
             print(f"  [warn] {model_key}: no parent run found, skipping.")
             continue
-        # Sort by the actual "fold" param, not the runName string (a
-        # lexicographic sort over e.g. "fold_1".."fold_10" would not even
-        # match numeric fold order past 9 folds, and it never guaranteed
-        # per_fold_heldout_metrics.csv's "fold" column meant the same fold
-        # as cv_results.py's, which sorts on this same int param).
         children = sorted(
             children_by_parent.get(parent.info.run_id, []),
             key=lambda r: int(r.data.params.get("fold", -1)),
@@ -386,41 +337,18 @@ def _load_all_configs(
     return configs
 
 
-# ---------------------------------------------------------------------------
-# Plotting -- bar/forest charts
-# ---------------------------------------------------------------------------
-
-
-def _plot_bar_with_ci(names, points, cis, title, ylabel, output_path) -> None:
-    fig, ax = plt.subplots(figsize=(max(8, len(names) * 1.0), 5))
-    x = np.arange(len(names))
-    lo = np.array([max(points[i] - cis[i][0], 0.0) for i in range(len(names))])
-    hi = np.array([max(cis[i][1] - points[i], 0.0) for i in range(len(names))])
-    colors = [config_color(n) for n in names]
-    ax.bar(x, points, yerr=[lo, hi], capsize=4, color=colors)
-    ax.set_xticks(x)
-    ax.set_xticklabels(config_labels(names), rotation=30, ha="right")
-    ax.set_ylabel(ylabel)
-    ax.set_ylim(0, 1.05)
-    ax.set_title(title)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
 def _plot_forest(
     pair_df: pd.DataFrame, ci_lo_col: str, ci_hi_col: str, title: str, output_path
 ) -> None:
     """One row per comparison pair. Point = plug-in ensemble DeltaAUROC (A - B), whiskers =
     the bootstrap CI named by ci_lo_col/ci_hi_col. Color marks whether that CI excludes
     zero (the primary significance call). DeLong significance (ensemble/best-fold, kept
-    for traceability, see module docstring) is annotated alongside each point rather than
-    driving the color, since it is not the primary test."""
+    for traceability, see module docstring) is reported separately in delong_pairs.png,
+    not annotated here."""
     n = len(pair_df)
     fig, ax = plt.subplots(figsize=(9.5, max(3.5, n * 1.1)))
 
     labels = []
-    max_hi = pair_df[ci_hi_col].max()
     for i, row in enumerate(pair_df.itertuples()):
         pt = row.delta_auroc_ensemble
         lo, hi = getattr(row, ci_lo_col), getattr(row, ci_hi_col)
@@ -437,15 +365,6 @@ def _plot_forest(
             markersize=8,
             zorder=3,
         )
-        marks = []
-        if row.delong_ensemble_p < 0.05:
-            marks.append("DeLong-ens*")
-        if row.delong_bestfold_p < 0.05:
-            marks.append("DeLong-best*")
-        if marks:
-            ax.text(
-                max_hi + 0.01, i, " ".join(marks), va="center", fontsize=7.5, color=STATUS_NEUTRAL
-            )
         labels.append(
             f"{row.pair_id}\nA: {config_label(row.config_a)}\nB: {config_label(row.config_b)}"
         )
@@ -460,39 +379,83 @@ def _plot_forest(
         mpatches.Patch(facecolor=STATUS_SIGNIFICANT, label="Bootstrap CI excludes 0 (significant)"),
         mpatches.Patch(facecolor=STATUS_NEUTRAL, label="Bootstrap CI includes 0 (not significant)"),
     ]
-    fig.tight_layout(rect=(0, 0.14, 1, 1))
+    fig.tight_layout(rect=(0, 0.1, 1, 1))
     ax.legend(
         handles=legend_elems,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
+        bbox_to_anchor=(0.5, -0.1),
         ncol=1,
         fontsize=8,
         frameon=True,
-    )
-    fig.text(
-        0.02,
-        0.02,
-        "DeLong-ens*/DeLong-best* = ensemble/best-fold DeLong p<0.05 (non-clustered, kept for "
-        "traceability -- see the bootstrap CI for the primary significance call).",
-        fontsize=7,
-        color=STATUS_NEUTRAL,
     )
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
-def _draw_grouped_metrics(ax, names, metric_values: dict, ci_values=None, thresholds=None) -> None:
-    """Draw one grouped-metrics panel onto `ax` -- metrics on the x-axis, one
-    bar per model per metric group. No figure/save/legend here: the caller
-    (currently only the two-level frame-above/clip-below wrapper, which
-    shares one legend across both panels) owns legend placement.
+def _plot_delong_pairs(pair_df: pd.DataFrame, output_path) -> None:
+    """Small grouped-bar panel, one row per comparison pair: DeLong z-statistic for the
+    ensemble prediction and for the best-fold prediction, side by side. Bar color marks
+    Holm-Bonferroni-adjusted significance. This is the traceability check that sits
+    alongside the primary bootstrap CI in effect_decomposition_bca.png, not a
+    replacement for it (see module docstring)."""
+    n = len(pair_df)
+    fig, ax = plt.subplots(figsize=(7, max(2.5, n * 0.9)))
 
-    ci_values, if given, maps metric name -> list of (lo, hi) or None per
-    model, for metrics that actually have a computed CI -- metrics without
-    one are plotted as plain point bars, no CI is fabricated for them.
-    thresholds, if given, maps model name -> decision threshold, shown in
-    each bar's legend label since every non-AUROC metric here is evaluated
-    at that fixed threshold."""
+    y = np.arange(n)
+    height = 0.32
+    ens_z = pair_df["delong_ensemble_z"].to_numpy()
+    bf_z = pair_df["delong_bestfold_z"].to_numpy()
+    ens_sig = pair_df["delong_ensemble_p_holm"].to_numpy() < 0.05
+    bf_sig = pair_df["delong_bestfold_p_holm"].to_numpy() < 0.05
+
+    ax.barh(
+        y + height / 2, ens_z, height=height,
+        color=[STATUS_SIGNIFICANT if s else STATUS_NEUTRAL for s in ens_sig],
+        edgecolor="#0b0b0b", linewidth=0.5,
+    )
+    ax.barh(
+        y - height / 2, bf_z, height=height,
+        color=[STATUS_SIGNIFICANT if s else STATUS_NEUTRAL for s in bf_sig],
+        edgecolor="#0b0b0b", linewidth=0.5, hatch="//",
+    )
+    max_abs = max(np.abs(ens_z).max(), np.abs(bf_z).max(), 0.5)
+    pad = max_abs * 0.6 + 0.5
+    for yi, z, p in zip(y + height / 2, ens_z, pair_df["delong_ensemble_p_holm"]):
+        ax.text(
+            z + (0.08 if z >= 0 else -0.08), yi, f"p={p:.3f}", va="center",
+            ha="left" if z >= 0 else "right", fontsize=7,
+        )
+    for yi, z, p in zip(y - height / 2, bf_z, pair_df["delong_bestfold_p_holm"]):
+        ax.text(
+            z + (0.08 if z >= 0 else -0.08), yi, f"p={p:.3f}", va="center",
+            ha="left" if z >= 0 else "right", fontsize=7,
+        )
+
+    ax.axvline(0, color="#c3c2b7", linewidth=1, linestyle="--")
+    ax.set_xlim(-max_abs - pad, max_abs + pad)
+    ax.set_yticks(y)
+    ax.set_yticklabels(pair_df["pair_id"].tolist(), fontsize=8)
+    ax.invert_yaxis()
+    ax.set_xlabel("DeLong z-statistic (A - B)")
+    ax.set_title("DeLong test, ensemble vs. best-fold predictions (clip-level)", fontsize=10)
+
+    legend_elems = [
+        mpatches.Patch(facecolor="white", edgecolor="#0b0b0b", label="Ensemble"),
+        mpatches.Patch(facecolor="white", edgecolor="#0b0b0b", hatch="//", label="Best fold"),
+        mpatches.Patch(facecolor=STATUS_SIGNIFICANT, label="Holm-adjusted p < 0.05"),
+        mpatches.Patch(facecolor=STATUS_NEUTRAL, label="Holm-adjusted p >= 0.05"),
+    ]
+    ax.legend(
+        handles=legend_elems, loc="upper center", bbox_to_anchor=(0.5, -0.18),
+        ncol=2, fontsize=7.5, frameon=False,
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _draw_grouped_metrics(ax, names, metric_values: dict, ci_values=None, thresholds=None) -> None:
+    """Draw one grouped-metrics panel onto `ax`"""
     metric_names = list(metric_values.keys())
     n_models = len(names)
     x = np.arange(len(metric_names))
@@ -528,53 +491,34 @@ def _draw_grouped_metrics(ax, names, metric_values: dict, ci_values=None, thresh
     ax.set_ylim(0, 1.05)
 
 
-
-
 def _plot_two_level_grouped_metrics(
     names, frame_values: dict, frame_ci: dict, clip_values: dict, clip_ci: dict, title, output_path
 ) -> None:
-    """Frame level on top, clip level on the bottom, ONE shared legend
-    (model name only -- no per-model threshold in this merged figure: frame
-    and clip thresholds differ per model, so a single shared legend cannot
-    show both without either duplicating or conflicting; the per-model
-    threshold values are in heldout_ensemble_metrics.csv's threshold /
-    threshold_frame columns, and a footnote states what each level's
-    threshold IS instead). Both panels now carry a 95% percentile bootstrap
-    CI: frame-level uses the SAME patient-clustered resampling as clip-level
-    (resampling the 19 heldout patients, evaluating the metric over that
-    patient subset's frames each time) -- not a naive per-frame bootstrap,
-    so it does not reintroduce the frame-count pseudo-replication a plain
-    row-wise resample would."""
+    """Frame level on top, clip level on the bottom
+    Both panels carry a 95% BCa bootstrap CI"""
     fig, axes = plt.subplots(
         2, 1, figsize=(max(11, len(_METRIC_ORDER) * 2.2), 11.6), sharex=True, sharey=True
     )
     _draw_grouped_metrics(axes[0], names, frame_values, frame_ci)
-    axes[0].set_title("Frame level (95% CI)", fontsize=11, fontweight="bold")
+    axes[0].set_title("Frame level (95% BCa CI)", fontsize=11, fontweight="bold")
     _draw_grouped_metrics(axes[1], names, clip_values, clip_ci)
-    axes[1].set_title("Clip level, mean-probability aggregation (95% CI)", fontsize=11, fontweight="bold")
+    axes[1].set_title(
+        "Clip level, mean-probability aggregation (95% BCa CI)", fontsize=11, fontweight="bold"
+    )
     fig.suptitle(title, fontsize=12, fontweight="bold")
     fig.tight_layout(rect=(0, 0.12, 1, 0.96))
     axes[1].legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3, fontsize=8, frameon=True)
-    fig.text(
-        0.5,
-        0.02,
-        "Threshold applied at each level = cv_mean_threshold (frame) / cv_mean_clip_threshold (clip) "
-        "-- the CV-averaged per-fold optimal threshold; see heldout_ensemble_metrics.csv for per-model values.",
-        ha="center",
-        fontsize=7.5,
-        color=STATUS_NEUTRAL,
-    )
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
 def _plot_bootstrap_matrix(
-    p_matrix_boot: pd.DataFrame, bootstrap_matrix_df: pd.DataFrame, alpha: float, output_path
+    p_matrix_boot: pd.DataFrame, bootstrap_matrix_df: pd.DataFrame, output_path
 ) -> None:
-    """Full pairwise patient-clustered bootstrap matrix: heatmap (upper triangle,
-    green/pale-red = CI excludes/includes 0) + a summary table sized to fit every
-    pair -- no height-based cutoff, since that would silently drop whichever pairs
-    sort to the bottom (see the DeLong-matrix table bug this mirrors the fix for)."""
+    """Full pairwise patient-clustered bootstrap matrix (95% BCa): heatmap
+    (upper triangle, green/pale-red = CI excludes/includes 0) + a summary
+    table sized to fit every pair
+    """
     names = p_matrix_boot.index.tolist()  # RAW keys -- join key into bootstrap_matrix_df, do not map
     labels = config_labels(names)  # display only, same order as names
     n = len(names)
@@ -624,8 +568,7 @@ def _plot_bootstrap_matrix(
     ax_heat.grid(which="minor", color="white", linewidth=1.5)
     ax_heat.tick_params(which="minor", length=0)
     ax_heat.set_title(
-        f"Patient-clustered bootstrap DeltaAUROC (A - B), heldout ensemble, clip-level, "
-        f"EXPLORATORY (95% CI, alpha={alpha})",
+        "Heldout pairwise ΔAUROC (patient-clustered bootstrap, 95% BCa CI)",
         fontsize=11,
     )
     legend_elems = [
@@ -653,7 +596,7 @@ def _plot_bootstrap_matrix(
         va="top",
     )
     y -= 0.06
-    headers = ["Model A", "Model B", "ΔAUROC", "95% CI", "sig."]
+    headers = ["Model A", "Model B", "ΔAUROC", "95% BCa CI", "sig."]
     name_col_width = min(0.30, 0.09 + max_name_len * 0.011)
     col_x = [
         0.00,
@@ -700,13 +643,7 @@ def _plot_bootstrap_matrix(
 
 def _plot_dispersion_table(df: pd.DataFrame, output_path) -> None:
     """Render the frame/clip fold-dispersion table (mean +/- std across the 5
-    individually-trained fold models, not the ensemble) as TWO stacked
-    tables in one figure -- frame above, clip below -- each with only its
-    own 6 metric columns (Config + 6, not Config + 12 in one very wide row).
-
-    Config is the long display name, which already states architecture/
-    pretrain data/method, so those no longer need their own columns (they
-    stay as their own columns in the underlying CSV/MD)."""
+    individually-trained fold models, not the ensemble)"""
 
     def _level_table(level: str) -> tuple[list, list]:
         header = ["Config"] + [metric_label(m) for m in _METRIC_ORDER]
@@ -721,10 +658,6 @@ def _plot_dispersion_table(df: pd.DataFrame, output_path) -> None:
     header, cells_frame = _level_table("frame")
     _, cells_clip = _level_table("clip")
 
-    # ax.table does not size columns by content; derive explicit colWidths
-    # and figure width from the actual longest string per column, shared by
-    # both tables since they have identical headers -- same fix as
-    # cv_results.py's main table (long Config strings clipped otherwise).
     col_max_len = [
         max(len(str(row[j])) for row in [header] + cells_frame + cells_clip)
         for j in range(len(header))
@@ -765,11 +698,6 @@ def _plot_dispersion_table(df: pd.DataFrame, output_path) -> None:
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Manifest / clip structure
-# ---------------------------------------------------------------------------
-
-
 def _load_clip_structure(manifest_path) -> tuple:
     df_hm = pd.read_csv(manifest_path)
     clip_order = sorted(df_hm["clip_key"].unique().tolist())
@@ -779,10 +707,7 @@ def _load_clip_structure(manifest_path) -> tuple:
     clip_patient_ids = np.array([clip_patient_map[c] for c in clip_order])
     clip_keys_frame = df_hm["clip_key"].to_numpy()
     manifest_frame_labels = df_hm["label"].to_numpy()
-    # Per-FRAME patient id (one row per frame, same manifest row order as
-    # manifest_frame_labels) -- enables a patient-clustered bootstrap on
-    # frame-level ensemble metrics, resampling the same 19 patients as the
-    # clip-level bootstrap does, just evaluating the metric over frames.
+    # Per-FRAME patient id
     manifest_frame_patient_ids = df_hm["patient_id"].to_numpy()
     return (
         clip_order,
@@ -792,11 +717,6 @@ def _load_clip_structure(manifest_path) -> tuple:
         manifest_frame_labels,
         manifest_frame_patient_ids,
     )
-
-
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
 
 
 def process_experiment(
@@ -843,9 +763,6 @@ def process_experiment(
         print("No configurations could be loaded, aborting.")
         return
 
-    # ------------------------------------------------------------------
-    # Per-fold table
-    # ------------------------------------------------------------------
     per_fold_rows = []
     for model_key, data in configs.items():
         entry = get_model_entry(model_key)
@@ -867,12 +784,8 @@ def process_experiment(
     per_fold_df = pd.DataFrame(per_fold_rows)
     print(f"\nPer-fold table: {len(per_fold_df)} rows.")
 
-    # ------------------------------------------------------------------
-    # Frame- and clip-level heldout performance, mean +/- std across the 5
-    # CV fold models (not the ensemble -- this is the individually-trained
-    # fold models' dispersion, the descriptive counterpart to the ensemble
-    # table below).
-    # ------------------------------------------------------------------
+    # Fold-level dispersion (not the ensemble) -- descriptive counterpart to
+    # the ensemble table below.
     dispersion_rows = []
     for model_key, data in configs.items():
         entry = get_model_entry(model_key)
@@ -900,18 +813,6 @@ def process_experiment(
     dispersion_df = pd.DataFrame(dispersion_rows)
     print(f"Frame/clip fold-dispersion table: {len(dispersion_df)} configs.")
 
-    # ------------------------------------------------------------------
-    # Per-config table (patient-clustered bootstrap on ALL 6 ensemble metrics,
-    # at BOTH levels -- AUROC is threshold-free; the other 5 use the fixed
-    # cv_mean_clip_threshold / cv_mean_threshold, the same threshold as their
-    # point estimate, so the CI reflects patient-cohort sampling variability,
-    # not threshold re-selection. Clip-level remains the PRIMARY grain (it is
-    # what the pairwise effect-decomposition below tests); frame-level is a
-    # descriptive companion that now also carries a CI, using the exact same
-    # patient-clustered resampling -- resampling the 19 patients and
-    # evaluating the metric over that patient subset's FRAMES each time, not
-    # a naive per-frame bootstrap, so it does not pseudo-replicate frames.
-    # ------------------------------------------------------------------
     print(f"\nBootstrapping ensemble metrics per config (n_bootstrap={n_bootstrap})...")
     config_bootstrap: dict = {}  # model_key -> {metric_name -> clip-level bootstrap result}
     config_bootstrap_frame: dict = {}  # model_key -> {metric_name -> frame-level bootstrap result}
@@ -961,16 +862,12 @@ def process_experiment(
         for metric_name in _METRIC_ORDER:
             r = metric_results[metric_name]
             row[metric_name] = round(r["point"], 4)
-            row[f"{metric_name}_ci_percentile_lower"] = round(r["ci_percentile"][0], 4)
-            row[f"{metric_name}_ci_percentile_upper"] = round(r["ci_percentile"][1], 4)
             row[f"{metric_name}_ci_bca_lower"] = round(r["ci_bca"][0], 4)
             row[f"{metric_name}_ci_bca_upper"] = round(r["ci_bca"][1], 4)
             row[f"{metric_name}_n_bootstrap_dropped"] = r["n_dropped"]
 
             rf = frame_metric_results[metric_name]
             row[f"{metric_name}_frame"] = round(rf["point"], 4)
-            row[f"{metric_name}_frame_ci_percentile_lower"] = round(rf["ci_percentile"][0], 4)
-            row[f"{metric_name}_frame_ci_percentile_upper"] = round(rf["ci_percentile"][1], 4)
             row[f"{metric_name}_frame_ci_bca_lower"] = round(rf["ci_bca"][0], 4)
             row[f"{metric_name}_frame_ci_bca_upper"] = round(rf["ci_bca"][1], 4)
             row[f"{metric_name}_frame_n_bootstrap_dropped"] = rf["n_dropped"]
@@ -979,17 +876,13 @@ def process_experiment(
         a, af = metric_results["auroc"], frame_metric_results["auroc"]
         print(
             f"  {model_key:28s} thr={threshold:.3f}  AUROC={a['point']:.4f}  "
-            f"pct=({a['ci_percentile'][0]:.4f}-{a['ci_percentile'][1]:.4f})  "
             f"BCa=({a['ci_bca'][0]:.4f}-{a['ci_bca'][1]:.4f})  "
             f"dropped={a['n_dropped']}/{n_bootstrap}  |  "
             f"frame thr={frame_threshold:.3f} AUROC={af['point']:.4f}  "
-            f"pct=({af['ci_percentile'][0]:.4f}-{af['ci_percentile'][1]:.4f})"
+            f"BCa=({af['ci_bca'][0]:.4f}-{af['ci_bca'][1]:.4f})"
         )
     per_config_df = pd.DataFrame(per_config_rows)
 
-    # ------------------------------------------------------------------
-    # Pairwise effect-decomposition table
-    # ------------------------------------------------------------------
     print(f"\nComputing effect decomposition for {len(PAIRS)} pair(s)...")
     pair_bootstrap: dict = {}
     pair_rows = []
@@ -1029,8 +922,7 @@ def process_experiment(
                 "auroc_a_ensemble": round(auc_a_ens, 4),
                 "auroc_b_ensemble": round(auc_b_ens, 4),
                 "delta_auroc_ensemble": round(boot["point"], 4),
-                "boot_ci_percentile_lower": round(boot["ci_percentile"][0], 4),
-                "boot_ci_percentile_upper": round(boot["ci_percentile"][1], 4),
+                # BCa only -- see module docstring (metrics not symmetrically distributed).
                 "boot_ci_bca_lower": round(boot["ci_bca"][0], 4),
                 "boot_ci_bca_upper": round(boot["ci_bca"][1], 4),
                 "n_bootstrap_dropped": boot["n_dropped"],
@@ -1045,7 +937,6 @@ def process_experiment(
         )
         print(
             f"  {pair['pair_id']:20s} DeltaAUROC={boot['point']:+.4f}  "
-            f"pct=({boot['ci_percentile'][0]:+.4f},{boot['ci_percentile'][1]:+.4f})  "
             f"BCa=({boot['ci_bca'][0]:+.4f},{boot['ci_bca'][1]:+.4f})  "
             f"DeLong(ens) p={p_ens:.4f}  DeLong(best) p={p_bf:.4f}"
         )
@@ -1055,16 +946,11 @@ def process_experiment(
         pair_df["delong_ensemble_p_holm"] = np.round(holm_bonferroni(ens_delong_p), 4)
         pair_df["delong_bestfold_p_holm"] = np.round(holm_bonferroni(best_delong_p), 4)
 
-    # ------------------------------------------------------------------
-    # Full 9x9 patient-clustered bootstrap matrix, clip-level -- all 36
-    # pairs among the 9 configs, exploratory/traceability only (same
-    # caveat as everywhere else in this script: not corrected for multiple
-    # comparisons, and not one of the 5 pre-specified architecture-matched
-    # comparisons). Unlike a DeLong matrix this does NOT add a frame- or
-    # clip-only independence violation on top of the all-pairs one -- it
-    # reuses the same primary, patient-clustered methodology as the 5
-    # pre-specified pairs, just applied to every pair instead of 5.
-    # ------------------------------------------------------------------
+    # Full 9x9 patient-clustered bootstrap matrix, clip-level, all 36 pairs,
+    # exploratory/traceability only: not corrected for multiple comparisons,
+    # and not one of the 5 pre-specified architecture-matched comparisons.
+    # Reuses the same primary, patient-clustered methodology as those 5
+    # pairs, just applied to every pair instead of 5.
     print(f"\nBootstrapping full 9x9 pairwise matrix, clip-level (n_bootstrap={n_bootstrap})...")
     matrix_rows = []
     config_keys = list(configs.keys())
@@ -1085,7 +971,7 @@ def process_experiment(
             seed=seed,
             alpha=alpha,
         )
-        lo, hi = boot["ci_percentile"]
+        lo, hi = boot["ci_bca"]
         matrix_rows.append(
             {
                 "config_a": a,
@@ -1104,43 +990,13 @@ def process_experiment(
     n_sig = int(bootstrap_matrix_df["significant"].sum())
     print(f"  {n_sig}/{len(bootstrap_matrix_df)} pairs significant (CI excludes 0)")
 
-    # ------------------------------------------------------------------
-    # Friedman + Wilcoxon on heldout AUROC (5-fold matrix), clip- and
-    # frame-level -- clip is the primary grain used elsewhere in this
-    # script; frame is reported alongside for the same reason the frame-
-    # level metrics table exists (descriptive companion, not a second
-    # significance claim -- clip-level pseudoreplicates less).
-    #
-    # Friedman only, no Wilcoxon here (unlike cv_results.py's validation-fold
-    # side): the primary significance statements on the held-out cohort are
-    # the patient-clustered bootstrap CIs above, and a 5-fold-paired Wilcoxon
-    # on top of that would be a second, weaker, largely redundant test.
-    # ------------------------------------------------------------------
-    # (blocks x models) shape run_friedman/plot_friedman_ranks want: rows =
-    # fold, columns = config. No Wilcoxon left in this file to also need the
-    # (models x folds) shape, so build it this way directly instead of
-    # transposing at each call site.
-    print("\nRunning Friedman on heldout clip AUROC (per-fold matrix)...")
-    fold_auroc_wide = per_fold_df.pivot(index="fold", columns="config", values="auroc")
-    friedman_stat, friedman_p = run_friedman(fold_auroc_wide)
-    print(f"  Friedman chi2={friedman_stat:.4f}  p={friedman_p:.4f}")
-
-    print("Running Friedman on heldout frame AUROC (per-fold matrix)...")
-    fold_auroc_wide_frame = per_fold_df.pivot(index="fold", columns="config", values="auroc_frame")
-    friedman_stat_frame, friedman_p_frame = run_friedman(fold_auroc_wide_frame)
-    print(f"  Friedman chi2={friedman_stat_frame:.4f}  p={friedman_p_frame:.4f}")
-
-    # ------------------------------------------------------------------
-    # Friedman at the PATIENT level: rows = the 19 heldout patients (blocks),
+    # Friedman at the PATIENT level: rows = heldout patients (blocks),
     # columns = the 9 model configs (treatments), values = each patient's mean
-    # absolute error |true_label - predicted_probability| on the ensemble
-    # CLIP predictions, averaged over that patient's clips. Unlike the
-    # per-fold AUROC version above, mean absolute error is defined for every
-    # patient regardless of class balance (2/19 patients have only one class
-    # among their clips, so a per-patient AUROC would be undefined for them)
-    # -- so all 19 patients contribute, giving this test its statistical
-    # power. Lower error is better, so ranks are reversed (higher_is_better=False).
-    # ------------------------------------------------------------------
+    # absolute error on the ensemble CLIP predictions. Mean absolute error is
+    # defined for every patient regardless of class balance (2/19 patients
+    # have only one class among their clips, so a per-patient AUROC would be
+    # undefined for them), so all patients contribute. Lower error is
+    # better, so ranks are reversed (higher_is_better=False).
     print("Running Friedman on heldout clip mean absolute error (per-patient matrix)...")
     patient_error_rows = []
     for patient in np.unique(clip_patient_ids):
@@ -1158,9 +1014,6 @@ def process_experiment(
         f"p={friedman_p_patient:.4f}"
     )
 
-    # ------------------------------------------------------------------
-    # Output
-    # ------------------------------------------------------------------
     if dry_run:
         print("\n[DRY RUN] Skipping file writes.")
         print("\n--- Frame/clip fold-dispersion table ---")
@@ -1191,9 +1044,9 @@ def process_experiment(
     pair_df.to_csv(output_dir / "effect_decomposition.csv", index=False)
     (output_dir / "effect_decomposition.md").write_text(to_markdown(pair_df))
 
-    bootstrap_matrix_df.to_csv(output_dir / "bootstrap_matrix_heldout_clip.csv", index=False)
+    bootstrap_matrix_df.to_csv(output_dir / "heldout_pairwise_bootstrap.csv", index=False)
     _plot_bootstrap_matrix(
-        p_matrix_boot, bootstrap_matrix_df, alpha, output_dir / "bootstrap_matrix_heldout_clip.png"
+        p_matrix_boot, bootstrap_matrix_df, output_dir / "heldout_pairwise_bootstrap.png"
     )
 
     for model_key, metric_results in config_bootstrap.items():
@@ -1206,64 +1059,27 @@ def process_experiment(
         np.save(bootstrap_dir / f"{pair_id}.npy", result["replicates"])
 
     names = per_config_df["config"].tolist()
-    points = per_config_df["auroc"].tolist()
-    cis_pct_auroc = list(
-        zip(per_config_df["auroc_ci_percentile_lower"], per_config_df["auroc_ci_percentile_upper"])
-    )
-    cis_bca_auroc = list(
-        zip(per_config_df["auroc_ci_bca_lower"], per_config_df["auroc_ci_bca_upper"])
-    )
-    _plot_bar_with_ci(
-        names,
-        points,
-        cis_pct_auroc,
-        "Heldout ensemble AUROC, clip-level (95% percentile CI)",
-        "AUROC",
-        output_dir / "heldout_ensemble_auroc_percentile.png",
-    )
-    _plot_bar_with_ci(
-        names,
-        points,
-        cis_bca_auroc,
-        "Heldout ensemble AUROC, clip-level (95% BCa CI)",
-        "AUROC",
-        output_dir / "heldout_ensemble_auroc_bca.png",
-    )
-    all_metrics_ci_pct = {
-        m: list(
-            zip(
-                per_config_df[f"{m}_ci_percentile_lower"], per_config_df[f"{m}_ci_percentile_upper"]
-            )
-        )
+    all_metrics_ci_bca = {
+        m: list(zip(per_config_df[f"{m}_ci_bca_lower"], per_config_df[f"{m}_ci_bca_upper"]))
         for m in _METRIC_ORDER
     }
-    all_metrics_ci_pct_frame = {
+    all_metrics_ci_bca_frame = {
         m: list(
-            zip(
-                per_config_df[f"{m}_frame_ci_percentile_lower"],
-                per_config_df[f"{m}_frame_ci_percentile_upper"],
-            )
+            zip(per_config_df[f"{m}_frame_ci_bca_lower"], per_config_df[f"{m}_frame_ci_bca_upper"])
         )
         for m in _METRIC_ORDER
     }
     _plot_two_level_grouped_metrics(
         names,
         {m: per_config_df[f"{m}_frame"].tolist() for m in _METRIC_ORDER},
-        all_metrics_ci_pct_frame,
+        all_metrics_ci_bca_frame,
         {m: per_config_df[m].tolist() for m in _METRIC_ORDER},
-        all_metrics_ci_pct,
-        "Heldout ensemble metrics per configuration (95% percentile CI, patient-clustered)",
+        all_metrics_ci_bca,
+        "Heldout ensemble metrics per configuration (95% BCa CI, patient-clustered)",
         output_dir / "heldout_ensemble_metrics_bar.png",
     )
 
     if not pair_df.empty:
-        _plot_forest(
-            pair_df,
-            "boot_ci_percentile_lower",
-            "boot_ci_percentile_upper",
-            "Effect decomposition, clip-level (95% percentile CI)",
-            output_dir / "effect_decomposition_percentile.png",
-        )
         _plot_forest(
             pair_df,
             "boot_ci_bca_lower",
@@ -1271,35 +1087,26 @@ def process_experiment(
             "Effect decomposition, clip-level (95% BCa CI)",
             output_dir / "effect_decomposition_bca.png",
         )
+        _plot_delong_pairs(pair_df, output_dir / "delong_pairs.png")
 
-    # One multi-metric panel per architecture (all variants of that architecture side by side,
-    # frame level on top / clip level on the bottom, both with 95% percentile CI --
-    # same two-level treatment as the global heldout_ensemble_metrics_bar.png).
     for architecture, sub in per_config_df.groupby("architecture", sort=False):
-        sub_ci_pct = {
-            m: list(zip(sub[f"{m}_ci_percentile_lower"], sub[f"{m}_ci_percentile_upper"]))
-            for m in _METRIC_ORDER
+        sub_ci_bca = {
+            m: list(zip(sub[f"{m}_ci_bca_lower"], sub[f"{m}_ci_bca_upper"])) for m in _METRIC_ORDER
         }
-        sub_ci_pct_frame = {
-            m: list(
-                zip(sub[f"{m}_frame_ci_percentile_lower"], sub[f"{m}_frame_ci_percentile_upper"])
-            )
+        sub_ci_bca_frame = {
+            m: list(zip(sub[f"{m}_frame_ci_bca_lower"], sub[f"{m}_frame_ci_bca_upper"]))
             for m in _METRIC_ORDER
         }
         _plot_two_level_grouped_metrics(
             sub["config"].tolist(),
             {m: sub[f"{m}_frame"].tolist() for m in _METRIC_ORDER},
-            sub_ci_pct_frame,
+            sub_ci_bca_frame,
             {m: sub[m].tolist() for m in _METRIC_ORDER},
-            sub_ci_pct,
-            f"Heldout ensemble metrics, {architecture} (95% percentile CI, patient-clustered)",
+            sub_ci_bca,
+            f"Heldout ensemble metrics, {architecture} (95% BCa CI, patient-clustered)",
             output_dir / f"arch_{slug(architecture)}_heldout_metrics.png",
         )
 
-    # Frame level (left) and clip level (right) side by side -- clip-level is
-    # the unit statistical testing is done on; frame-level is a smoother
-    # curve for presentation. The manuscript's significance claims must still
-    # come from the clip-level / patient-clustered results above, not this.
     roc_data_clip = []
     for model_key, data in configs.items():
         probs = data["ensemble_clip_probs"]
@@ -1333,21 +1140,6 @@ def process_experiment(
     fig.tight_layout(rect=(0, 0.17, 1, 0.95))
     fig.savefig(output_dir / "roc_curves_ensemble.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-
-    plot_friedman_ranks(
-        fold_auroc_wide,
-        friedman_stat,
-        friedman_p,
-        output_dir / "friedman_ranks_heldout.png",
-        title="Model rankings, heldout clip AUROC (5-fold)",
-    )
-    plot_friedman_ranks(
-        fold_auroc_wide_frame,
-        friedman_stat_frame,
-        friedman_p_frame,
-        output_dir / "friedman_ranks_heldout_frame.png",
-        title="Model rankings, heldout frame AUROC (5-fold)",
-    )
 
     patient_error_df.to_csv(output_dir / "heldout_patient_mae.csv")
     plot_friedman_ranks(

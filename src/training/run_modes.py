@@ -2,8 +2,7 @@
 
 Each pipeline is described by a ``PipelineDef`` dataclass.
 ``run_split_mode`` and ``run_cv_mode`` accept one of these definitions and
-delegate all pipeline-specific behaviour to the fields it carries, keeping
-the individual script files to ~50 lines.
+delegate all pipeline-specific behaviour to the fields it carries.
 """
 
 from __future__ import annotations

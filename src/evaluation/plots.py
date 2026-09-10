@@ -101,7 +101,7 @@ def plot_confusion_matrix(
     - Grey → zero samples (avoid misleading white cells)
 
     Args:
-        cm:          2×2 confusion matrix (sklearn convention: rows = true,
+        cm:          2x2 confusion matrix (sklearn convention: rows = true,
                      columns = predicted).
         threshold:   Decision threshold shown in the title.
         class_names: (negative_label, positive_label).
@@ -151,7 +151,7 @@ def plot_confusion_matrix_multiclass(
     """Normalised confusion matrix for N classes.
 
     Args:
-        cm:          N×N confusion matrix (sklearn convention).
+        cm:          NxN confusion matrix (sklearn convention).
         class_names: List of class labels (length N).
         title:       Figure title.
 
@@ -296,17 +296,8 @@ def plot_delong_heatmap(
     names = p_matrix.index.tolist()
     n = len(names)
     max_name_len = max((len(str(name)) for name in names), default=8)
-    # Wide enough for long config names (e.g. "resnet50_imagenet_sup") in the
-    # right-hand table without truncating -- short names (e.g. "fold_1") just
-    # get a smaller, still-comfortable width.
     fig_width = max(14, 9 + max_name_len * 0.35)
     n_pairs = len(df_summary)
-    # Table height must fit every pair, not just the heatmap's n models --
-    # with n>~8 models there are more pairs (n*(n-1)/2) than rows a
-    # fixed-height table could show; a silent height-based cutoff would drop
-    # rows sorted to the bottom by ascending p-value, i.e. exactly the
-    # non-significant ones, making the table look more uniformly significant
-    # than the heatmap actually shows.
     fig_height = max(5, n * 0.5, 1.3 + n_pairs * 0.22)
 
     fig, (ax_heat, ax_table) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
@@ -392,9 +383,6 @@ def plot_delong_heatmap(
     ax_table.axhline(y, color="#e1e0d9", linewidth=0.8, xmin=0.02, xmax=0.98)
     y -= 0.01
 
-    # Sized in _fig_height above so every row fits -- no height-based cutoff,
-    # since dropping rows here would silently hide exactly the non-significant
-    # (highest p-value, sorted-to-the-bottom) pairs.
     row_step = y / max(n_pairs, 1)
     for _, row in df_summary.iterrows():
         color = STATUS_SIGNIFICANT if row["significant"] else "#0b0b0b"

@@ -2,24 +2,13 @@
 src/evaluation/style.py
 ------------------------
 Shared presentation layer for ulcer-detection comparison figures (effect
-decomposition, CV results, ...): color AND display text. No plotting calls
-of its own, no MLflow, no file I/O -- pure constants/helpers, reused by every
-script that plots or tabulates per-config comparisons so a config's color and
+decomposition, CV results, ...): color and display text.
+Pure constants/helpers, reused by every script that plots or tabulates
+per-config comparisons so a config's color and
 name always render the same way across every figure in the manuscript.
 
-Composite color encoding, not one hue per config: only 8 CVD-safe categorical
-hues exist (see the dataviz skill's validated palette), but there are 9
-model configs, and grouping by architecture is also the encoding that
-matches the analysis's own story (method/corpus effects are within-
-architecture comparisons). Hue = architecture identity (4 of the 8
-validated slots, in their fixed order); shade = pretrain source within
-that architecture.
-
-The display name is a lossless transcription of the same partition the
-color uses: both branch on `_pretrain_key()`, so a reader who has learned
-"dark shade = GastroNet-5M" can read that fact straight off the label too.
 Neither is ever safe to use as a join key, dict key, DataFrame index, or
-filename -- config_color/config_label raise on any string that is not one
+filename. config_color/config_label raise on any string that is not one
 of the 9 MODEL_REGISTRY keys, exactly like get_model_entry().
 
 Public API
@@ -62,11 +51,8 @@ ARCH_HUE = {
     "ViT-Small/16": "#eda100",
 }
 
-# Abbreviated field values for the SHORT display form. Composed, not
-# per-config: 4 + 2 + 2 entries cover all 9 configs, and a 10th config
-# reusing an existing architecture/corpus/method gets a correct short label
-# for free. Keep ARCH_SHORT's key set identical to ARCH_HUE's -- an
-# architecture missing from either fails at the same place.
+# Abbreviated field values for the SHORT display form.
+# Keep ARCH_SHORT's key set identical to ARCH_HUE's.
 ARCH_SHORT = {
     "ResNet-50": "RN50",
     "EfficientNet-B0": "EffNet-B0",
@@ -105,11 +91,7 @@ def shade(hex_color: str, amount: float) -> str:
 
 
 def _corpus(entry) -> str:
-    """Canonical pretraining corpus, normalising the registry's inconsistent
-    'ImageNet' (DINOv1 rows) vs 'ImageNet-1K' (supervised rows) -- both ARE
-    ImageNet-1K; only the pretrain METHOD differs between those rows. Display
-    only -- does not touch the stored registry/CSV value. Safe for
-    config_color, which tests startswith('GastroNet')."""
+    """Canonical pretraining corpus"""
     return "GastroNet-5M" if entry.pretrain_data.startswith("GastroNet") else "ImageNet-1K"
 
 
@@ -165,8 +147,7 @@ def config_labels(model_keys: Iterable[str], *, short: bool = True) -> list[str]
 
 
 def metric_label(metric: str) -> str:
-    """Display name for a lowercase metric key. Unknown metrics pass through
-    unchanged (non-strict -- callers may hand this ad hoc column names)."""
+    """Display name for a lowercase metric key. Unknown metrics pass through unchanged."""
     return METRIC_LABEL.get(metric, metric)
 
 
@@ -176,10 +157,5 @@ def level_label(level: str) -> str:
 
 
 def slug(text: str) -> str:
-    """Filename-safe fragment, e.g. 'ViT-Base/16' -> 'vitbase16'.
-
-    Output is an on-disk filename contract (arch_<slug>_*.png in both
-    results/ulcer/cv/ and results/ulcer/heldout/) -- do not change behavior
-    without regenerating every existing file using the old name.
-    """
+    """Filename-safe fragment, e.g. 'ViT-Base/16' -> 'vitbase16'."""
     return text.lower().replace("-", "").replace("/", "").replace(" ", "_").replace(".", "")

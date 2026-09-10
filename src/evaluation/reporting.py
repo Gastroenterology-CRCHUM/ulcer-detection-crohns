@@ -1,7 +1,7 @@
 """
 src/evaluation/reporting.py
 ----------------------------
-Tiny shared report-writing helpers. No MLflow, no plotting, no matplotlib --
+Tiny shared report-writing helpers. No MLflow, no plotting, no matplotlib,
 callers own the DataFrame and the destination path.
 
 Public API
@@ -20,7 +20,7 @@ def to_markdown(df: pd.DataFrame) -> str:
     """Render a DataFrame as a pipe-table markdown string, no index column.
 
     Deliberately NOT DataFrame.to_markdown() (needs the optional `tabulate`
-    dependency) -- raw str(v) per cell, matching every existing .md file
+    dependency), raw str(v) per cell, matching every existing .md file
     already on disk under results/ulcer/.
     """
     header = "| " + " | ".join(df.columns) + " |"

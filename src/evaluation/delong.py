@@ -3,10 +3,6 @@ src/evaluation/delong.py
 ------------------------
 DeLong test for comparing correlated AUROCs.
 
-Reference: DeLong et al. (1988), Comparing the areas under two or more
-correlated receiver operating characteristic curves: a nonparametric approach.
-Biometrics, 44(3), 837-845.
-
 Principle:
   The AUC is equivalent to the Wilcoxon-Mann-Whitney statistic.
   For two models evaluated on the SAME test set, their AUCs are

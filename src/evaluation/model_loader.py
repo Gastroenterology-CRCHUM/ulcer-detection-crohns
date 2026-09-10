@@ -5,9 +5,9 @@ Utilities for instantiating and loading trained ClassifierModel checkpoints.
 
 Public API
 ~~~~~~~~~~
-    remap_classifier_keys   – fix Sequential head key mismatch in old checkpoints
-    load_model              – build + load one ClassifierModel from a registry entry
-    load_best_models        – load all models in a BEST_MODELS registry dict
+    remap_classifier_keys   - fix Sequential head key mismatch in old checkpoints
+    load_model              - build + load one ClassifierModel from a registry entry
+    load_best_models        - load all models in a BEST_MODELS registry dict
 """
 
 from __future__ import annotations

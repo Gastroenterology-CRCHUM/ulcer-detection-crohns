@@ -5,9 +5,9 @@ Evaluation loop and aggregation helpers for ulcer detection models.
 
 Public API
 ~~~~~~~~~~
-    evaluate_model        – run inference on a DataLoader, return all outputs
-    evaluate_all_models   – iterate over a BEST_MODELS registry
-    run_delong            – DeLong test at frame or clip level (level=)
+    evaluate_model        - run inference on a DataLoader, return all outputs
+    evaluate_all_models   - iterate over a BEST_MODELS registry
+    run_delong            - DeLong test at frame or clip level
 """
 
 from __future__ import annotations
@@ -49,13 +49,13 @@ def evaluate_model(
     Returns
     -------
     dict with keys:
-        ``labels``        np.ndarray – frame-level ground-truth (0/1)
-        ``probs``         np.ndarray – frame-level P(ulcer) in [0, 1]
-        ``preds``         np.ndarray – binary predictions at *threshold*
-        ``video_ids``     list[str]  – clip ID for each frame
-        ``fpr``, ``tpr``  np.ndarray – ROC curve arrays
-        ``frame_metrics`` dict       – from :func:`compute_metrics_with_ci`
-        ``clip_metrics``  dict       – from :func:`compute_clip_metrics`
+        ``labels``        np.ndarray - frame-level ground-truth (0/1)
+        ``probs``         np.ndarray - frame-level P(ulcer) in [0, 1]
+        ``preds``         np.ndarray - binary predictions at *threshold*
+        ``video_ids``     list[str]  - clip ID for each frame
+        ``fpr``, ``tpr``  np.ndarray - ROC curve arrays
+        ``frame_metrics`` dict       - from :func:`compute_metrics_with_ci`
+        ``clip_metrics``  dict       - from :func:`compute_clip_metrics`
     """
     return model.test_evaluation(dataloader, device, threshold)
 

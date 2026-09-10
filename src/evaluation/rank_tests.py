@@ -2,11 +2,10 @@
 src/evaluation/rank_tests.py
 ----------------------------
 Friedman + Wilcoxon rank comparison across models, and Holm-Bonferroni
-multiple-comparison correction. Pure computation/plotting, no MLflow, no
-file I/O beyond the figure itself.
+multiple-comparison correction. Pure computation/plotting.
 
 Two DIFFERENT DataFrame conventions are in play here, matching what each
-test naturally needs -- keep them straight when building the input frame:
+test naturally needs, keep them straight when building the input frame:
 
   Friedman family (run_friedman, plot_friedman_ranks):
       ROWS = blocks (folds, patients, ...); COLUMNS = models (the treatment
@@ -24,15 +23,13 @@ anything else).
 
 Public API
 ----------
-run_friedman(df)          -> (chi2, p)  -- omnibus test on the (blocks x models)
+run_friedman(df)          -> (chi2, p), omnibus test on the (blocks x models)
                                             DataFrame's COLUMNS, blocked on rows
 run_wilcoxon_matrix(df)   -> DataFrame of pairwise p-values, on a (models x blocks) DataFrame
 holm_bonferroni(pvals)    -> np.ndarray of adjusted p-values
 plot_friedman_ranks(df, stat, p, output_path, title, *, higher_is_better=True, label_fn=config_label)
     df: (blocks x models), same convention as run_friedman.
-plot_wilcoxon_pmatrix(p_df, alpha, output_path, subtitle="", *, label_fn=config_label)
-    label_fn maps a raw config key to display text for tick labels only --
-    df/p_df (and anything a caller writes to CSV from them) keep raw keys.
+plot_wilcoxon_pmatrix(p_df, alpha, output_path, subtitle="", *, label_fn=config_label).
 """
 
 from __future__ import annotations
@@ -59,7 +56,7 @@ from src.evaluation.style import (
 
 
 def run_friedman(df: pd.DataFrame) -> tuple[float, float]:
-    """Friedman omnibus test on a (blocks x models) DataFrame -- tests
+    """Friedman omnibus test on a (blocks x models) DataFrame, tests
     whether the COLUMNS (the treatments being compared, e.g. models) differ,
     blocked on the ROWS (e.g. folds or patients). Each column is passed to
     scipy's friedmanchisquare as one treatment's repeated measurements
@@ -113,15 +110,11 @@ def plot_friedman_ranks(
     label_fn: Callable[[str], str] = config_label,
 ) -> None:
     """df: (blocks x models), same convention as run_friedman. Ranks the
-    MODEL COLUMNS within each block ROW (axis=1) -- rank 1 = best in that
-    block -- then averages each model's rank across blocks (axis=0).
+    MODEL COLUMNS within each block ROW (axis=1)
 
     higher_is_better: set False for an error-type metric (e.g. mean absolute
     error, log-loss) where the SMALLEST value should rank 1st.
-
-    label_fn maps a raw MODEL_REGISTRY key (df's column values) to a display
-    string for the y-axis; config_color always keys on the RAW value, so
-    color and label can never desync even though the tick text is mapped."""
+    """
     ranked = df.rank(axis=1, ascending=not higher_is_better)
     mean_ranks = ranked.mean(axis=0).sort_values()
     sig = p < 0.05
@@ -156,12 +149,7 @@ def plot_wilcoxon_pmatrix(
     *,
     label_fn: Callable[[str], str] = config_label,
 ) -> None:
-    """Each cell = Wilcoxon signed-rank p-value for row-model vs. column-model.
-    Diagonal is self-comparison. Categorical significant/not-significant
-    coloring (not a continuous gradient) so the reader doesn't have to map
-    color to a p-value by eye. label_fn maps p_df's raw index/columns to
-    display strings for the tick labels only -- p_df itself (and whatever a
-    caller writes to CSV from it) keeps the raw MODEL_REGISTRY keys."""
+    """Each cell = Wilcoxon signed-rank p-value."""
     n = len(p_df)
     fig, ax = plt.subplots(figsize=(max(8, n * 1.0), max(7, n * 0.9)))
 
@@ -197,7 +185,7 @@ def plot_wilcoxon_pmatrix(
     ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
     ax.grid(which="minor", color="white", linewidth=1.5)
     ax.tick_params(which="minor", length=0)
-    title = "Wilcoxon signed-rank test: row model vs. column model"
+    title = "Wilcoxon signed-rank test (pairwise, blocked by fold)"
     if subtitle:
         title += f"\n{subtitle}"
     title += f" (alpha={alpha})"

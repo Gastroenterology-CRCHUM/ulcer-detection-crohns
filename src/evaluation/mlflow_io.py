@@ -4,8 +4,7 @@ src/evaluation/mlflow_io.py
 One tiny MLflow artifact-download helper, shared by the reporting/backfill
 scripts that read per-fold .npy prediction artifacts. Deliberately NOT in
 src/evaluation/mlflow_utils.py, which imports torch and mlflow.pytorch at
-module scope -- every caller of this module is a read-only reporting/backfill
-script with no reason to load torch.
+module scope.
 
 Public API
 ----------

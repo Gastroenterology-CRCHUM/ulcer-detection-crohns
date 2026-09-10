@@ -18,10 +18,7 @@ Two feature families (following the paper):
 
 References
 ----------
-    [Canny]  Canny (1986)
-    [GLCM]   Haralick et al. (1973)
-    [LAPE]   Subbarao et al. focus measure (Laplacian energy)
-    [DCTR]   Shen & Chen focus measure (DCT ratio)
+Yao H, Stidham RW, Soroushmehr R, et al. (2019)
 """
 
 from __future__ import annotations
