@@ -94,6 +94,19 @@
       "ulcer_positive": 844,
       "ulcer_negative": 729
     },
+    "frames_after_filtration": {
+      "total": 1405,
+      "ulcer_positive": 737,
+      "ulcer_negative": 668,
+      "non_informative": 168,
+      "frames_per_clip": {
+        "mean": 21.615384615384617,
+        "std": 8.440401922621021,
+        "min": 2,
+        "max": 40,
+        "median": 21.0
+      }
+    },
     "patient_leakage": {
       "vs_main_total": {
         "count": 0,

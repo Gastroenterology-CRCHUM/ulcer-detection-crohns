@@ -60,8 +60,10 @@
   Patients                                       19       19        0
   Clips                                          65       37       28
   Frames                                      1,573      844      729
+  Frames after filtration                     1,405      737      668  (excluded: 168)
 
   Frames/clip  mean 24.2 +/- 6.8   [min 10 - max 41 | median 21]
+  Frames/clip after filtration  mean 21.6 +/- 8.4   [min 2 - max 40 | median 21]
 
   Patient-level leakage vs. train/val/test:
     [OK] No patient overlap between heldout and train/val/test.

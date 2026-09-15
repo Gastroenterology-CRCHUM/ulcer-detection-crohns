@@ -91,6 +91,7 @@ class DatasetEDA:
         fps: float = 1.0,
         heldout_manifest_path: str | None = None,
         excel_path: str | None = None,
+        heldout_predictions_path: str | None = None,
     ):
         self.splits_dir = Path(splits_dir)
         self.output_dir = Path(output_dir)
@@ -98,6 +99,9 @@ class DatasetEDA:
         self.fps = fps
         self.heldout_manifest_path = Path(heldout_manifest_path) if heldout_manifest_path else None
         self.excel_path = Path(excel_path) if excel_path else None
+        self.heldout_predictions_path = (
+            Path(heldout_predictions_path) if heldout_predictions_path else None
+        )
 
         self.df: pd.DataFrame | None = None
         self.patient_info: dict | None = None
@@ -289,6 +293,27 @@ class DatasetEDA:
                 "ulcer_negative": int((df["label"] == 0).sum()),
             },
         }
+
+        if self.heldout_predictions_path and self.heldout_predictions_path.exists():
+            pred_df = pd.read_csv(self.heldout_predictions_path)
+            merged = df.merge(pred_df[["relative_path", "category"]], on="relative_path", how="left")
+            informative_df = merged[merged["category"] == "informative"]
+            informative_clip_df = informative_df.groupby("clip_key").agg(
+                n_frames=("label", "count")
+            )
+            stats["frames_after_filtration"] = {
+                "total": len(informative_df),
+                "ulcer_positive": int((informative_df["label"] == 1).sum()),
+                "ulcer_negative": int((informative_df["label"] == 0).sum()),
+                "non_informative": len(merged) - len(informative_df),
+                "frames_per_clip": {
+                    "mean": informative_clip_df["n_frames"].mean(),
+                    "std": informative_clip_df["n_frames"].std(),
+                    "min": int(informative_clip_df["n_frames"].min()),
+                    "max": int(informative_clip_df["n_frames"].max()),
+                    "median": informative_clip_df["n_frames"].median(),
+                },
+            }
 
         if self.df is not None and "patient_id" in self.df.columns:
             held_patients = set(df["patient_id"].astype(str))
@@ -879,11 +904,24 @@ class DatasetEDA:
             lines.append(
                 f"  {'Frames':<40} {f['total']:>8,} {f['ulcer_positive']:>8,} {f['ulcer_negative']:>8,}"
             )
+            after_filter = heldout_stats.get("frames_after_filtration")
+            if after_filter:
+                lines.append(
+                    f"  {'Frames after filtration':<40} {after_filter['total']:>8,} "
+                    f"{after_filter['ulcer_positive']:>8,} {after_filter['ulcer_negative']:>8,}"
+                    f"  (excluded: {after_filter['non_informative']:,})"
+                )
             fpc = c["frames_per_clip"]
             lines.append(
                 f"\n  Frames/clip  mean {fpc['mean']:.1f} +/- {fpc['std']:.1f}"
                 f"   [min {fpc['min']} - max {fpc['max']} | median {fpc['median']:.0f}]"
             )
+            if after_filter:
+                fpc2 = after_filter["frames_per_clip"]
+                lines.append(
+                    f"  Frames/clip after filtration  mean {fpc2['mean']:.1f} +/- {fpc2['std']:.1f}"
+                    f"   [min {fpc2['min']} - max {fpc2['max']} | median {fpc2['median']:.0f}]"
+                )
 
             leakage = heldout_stats.get("patient_leakage", {})
             lines.append("\n  Patient-level leakage vs. train/val/test:")
@@ -997,6 +1035,13 @@ def build_parser() -> argparse.ArgumentParser:
         "not included in the public repo, see data/ulcer/heldout/README.md).",
     )
     parser.add_argument(
+        "--heldout-predictions",
+        type=str,
+        default=str(paths.ulcer_heldout_dir / "predictions.csv"),
+        help="Path to the heldout informative-frame filter predictions.csv (optional, "
+        "skipped if not found; see scripts/noninformative/filter_frames.py).",
+    )
+    parser.add_argument(
         "--excel",
         type=str,
         default=str(paths.ulcer_raw_dir / "annotations.xlsx"),
@@ -1041,11 +1086,17 @@ def main(args: argparse.Namespace) -> None:
 
     plot_filter_outcomes(pred_df, output_dir)
 
+    heldout_pred_path = Path(args.heldout_predictions)
+    if heldout_pred_path.exists():
+        heldout_pred_df = pd.read_csv(heldout_pred_path)
+        plot_filter_outcomes(heldout_pred_df, output_dir, filename="heldout_filter_outcomes.png")
+
     eda = DatasetEDA(
         splits_dir=args.splits_dir,
         output_dir=args.output_dir,
         fps=args.fps,
         heldout_manifest_path=args.heldout_manifest,
+        heldout_predictions_path=args.heldout_predictions,
         excel_path=args.excel,
     )
     eda.run_full_analysis(

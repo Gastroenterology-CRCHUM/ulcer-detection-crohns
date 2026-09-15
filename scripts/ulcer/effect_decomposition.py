@@ -197,6 +197,7 @@ def _load_config(
     clip_keys_frame: np.ndarray,
     clip_labels: np.ndarray,
     manifest_frame_labels: np.ndarray,
+    frame_mask: np.ndarray | None = None,
 ) -> dict | None:
     """Download and aggregate one config's heldout predictions.
 
@@ -205,7 +206,7 @@ def _load_config(
 
     Clip aggregation assumes each fold's `heldout_probs_fold{k}.npy` is in
     the SAME row order as the heldout manifest (so `probs[i]` corresponds to
-    `clip_keys_frame[i]`) -- this is verified per fold against that fold's
+    `clip_keys_frame[i]`), this is verified per fold against that fold's
     own `heldout_labels_fold{k}.npy` sibling artifact rather than assumed.
     """
     fold_frame_probs, fold_thresholds, fold_frame_thresholds = [], [], []
@@ -241,6 +242,36 @@ def _load_config(
         fold_thresholds.append(float(ch.data.metrics.get("fold_optimal_clip_threshold", 0.5)))
         fold_frame_thresholds.append(float(ch.data.metrics.get("fold_optimal_threshold", 0.5)))
 
+    # Validate the best-fold artifact against the FULL (unfiltered) manifest
+    # structure, it is stored frame-indexed against the full manifest, same
+    # as every other artifact above, before the informative-frame filter
+    # (applied below) reassigns `manifest_frame_labels` to the filtered subset.
+    try:
+        best_fold_frame_probs = download_npy(
+            client, parent.info.run_id, "predictions/heldout_best_fold_probs.npy"
+        )
+        best_fold_frame_labels = download_npy(
+            client, parent.info.run_id, "predictions/heldout_best_fold_labels.npy"
+        )
+        if len(best_fold_frame_probs) != len(clip_keys_frame) or not np.array_equal(
+            best_fold_frame_labels, manifest_frame_labels
+        ):
+            raise ValueError("best-fold heldout artifact shape/order mismatch")
+        best_fold_frame_probs_valid = True
+    except Exception as exc:
+        print(
+            f"    [warn] best-fold heldout probs unavailable ({exc}), using ensemble as fallback."
+        )
+        best_fold_frame_probs_valid = False
+
+    # From here on, apply the informative-frame filter (a no-op boolean
+    # all-True mask when filtering is off)
+    if frame_mask is None:
+        frame_mask = np.ones(len(clip_keys_frame), dtype=bool)
+    fold_frame_probs = [p[frame_mask] for p in fold_frame_probs]
+    clip_keys_frame = clip_keys_frame[frame_mask]
+    manifest_frame_labels = manifest_frame_labels[frame_mask]
+
     fold_clip_probs = [_aggregate_to_clip(p, clip_keys_frame, clip_order) for p in fold_frame_probs]
     fold_metrics = [
         _clip_point_metrics(cp, clip_labels, thr)
@@ -254,24 +285,11 @@ def _load_config(
     ensemble_frame_probs = np.mean(np.stack(fold_frame_probs, axis=0), axis=0)
     ensemble_clip_probs = _aggregate_to_clip(ensemble_frame_probs, clip_keys_frame, clip_order)
 
-    try:
-        best_fold_frame_probs = download_npy(
-            client, parent.info.run_id, "predictions/heldout_best_fold_probs.npy"
-        )
-        best_fold_frame_labels = download_npy(
-            client, parent.info.run_id, "predictions/heldout_best_fold_labels.npy"
-        )
-        if len(best_fold_frame_probs) != len(clip_keys_frame) or not np.array_equal(
-            best_fold_frame_labels, manifest_frame_labels
-        ):
-            raise ValueError("best-fold heldout artifact shape/order mismatch")
+    if best_fold_frame_probs_valid:
         best_fold_clip_probs = _aggregate_to_clip(
-            best_fold_frame_probs, clip_keys_frame, clip_order
+            best_fold_frame_probs[frame_mask], clip_keys_frame, clip_order
         )
-    except Exception as exc:
-        print(
-            f"    [warn] best-fold heldout probs unavailable ({exc}), using ensemble as fallback."
-        )
+    else:
         best_fold_clip_probs = ensemble_clip_probs
 
     cv_mean_clip_threshold = float(parent.data.metrics.get("cv_mean_clip_threshold", 0.5))
@@ -297,7 +315,12 @@ def _load_all_configs(
     clip_keys_frame: np.ndarray,
     clip_labels: np.ndarray,
     manifest_frame_labels: np.ndarray,
+    frame_mask: np.ndarray | None = None,
 ) -> dict:
+    """`clip_order`/`clip_labels` here are the (possibly informative-frame-
+    filtered) clip structure to aggregate onto; `clip_keys_frame`/
+    `manifest_frame_labels` must stay the RAW, unfiltered manifest structure
+    """
     all_runs = client.search_runs(experiment_ids=[exp_id], max_results=1000)
     parents_by_model = {
         r.data.tags.get("model"): r for r in all_runs if not r.data.tags.get("mlflow.parentRunId")
@@ -331,6 +354,7 @@ def _load_all_configs(
             clip_keys_frame,
             clip_labels,
             manifest_frame_labels,
+            frame_mask,
         )
         if data is not None:
             configs[model_key] = data
@@ -698,8 +722,15 @@ def _plot_dispersion_table(df: pd.DataFrame, output_path) -> None:
     plt.close(fig)
 
 
-def _load_clip_structure(manifest_path) -> tuple:
+def _load_clip_structure(manifest_path, frame_mask: np.ndarray | None = None) -> tuple:
+    """frame_mask, if given, must be a boolean array aligned to the manifest's
+    raw row order (see `_load_informative_mask`), rows outside it are
+    dropped before deriving clip-level structure, so a clip with zero
+    surviving frames is naturally absent from `clip_order`, and majority-vote
+    clip labels are recomputed only over surviving frames."""
     df_hm = pd.read_csv(manifest_path)
+    if frame_mask is not None:
+        df_hm = df_hm[frame_mask].reset_index(drop=True)
     clip_order = sorted(df_hm["clip_key"].unique().tolist())
     clip_label_map = df_hm.groupby("clip_key")["label"].apply(lambda s: int(s.mode()[0]))
     clip_patient_map = df_hm.groupby("clip_key")["patient_id"].first()
@@ -719,6 +750,27 @@ def _load_clip_structure(manifest_path) -> tuple:
     )
 
 
+def _load_informative_mask(manifest_path, mask_path) -> np.ndarray:
+    """Boolean array aligned to the manifest's raw row order (True = keep).
+
+    `mask_path` is a CSV with columns relative_path,informative, built once
+    by running the informative-frame RF classifier (already used for the
+    training/CV set, scripts/noninformative/filter_frames.py) on the heldout
+    frames
+    """
+    df_hm = pd.read_csv(manifest_path)
+    mask_df = pd.read_csv(mask_path)
+    lookup = dict(zip(mask_df["relative_path"], mask_df["informative"]))
+    keep = df_hm["relative_path"].map(lookup)
+    n_unknown = int(keep.isna().sum())
+    if n_unknown:
+        print(
+            f"  [warn] {n_unknown} manifest frame(s) not found in the informative mask, "
+            "keeping them by default."
+        )
+    return keep.fillna(1).astype(bool).to_numpy()
+
+
 def process_experiment(
     experiment_name: str,
     manifest_path: str,
@@ -727,6 +779,8 @@ def process_experiment(
     alpha: float = 0.05,
     seed: int = 42,
     dry_run: bool = False,
+    filter_informative: bool = False,
+    informative_mask_path: str | None = None,
 ) -> None:
     from pathlib import Path
 
@@ -745,19 +799,52 @@ def process_experiment(
 
     print(f"Loading clip structure from {manifest_path} ...")
     (
-        clip_order,
-        clip_labels,
-        clip_patient_ids,
-        clip_keys_frame,
-        manifest_frame_labels,
-        manifest_frame_patient_ids,
+        clip_order_full,
+        clip_labels_full,
+        clip_patient_ids_full,
+        clip_keys_frame_full,
+        manifest_frame_labels_full,
+        manifest_frame_patient_ids_full,
     ) = _load_clip_structure(manifest_path)
+
+    frame_mask = None
+    if filter_informative:
+        mask_path = informative_mask_path or str(Path(manifest_path).parent / "informative_mask.csv")
+        frame_mask = _load_informative_mask(manifest_path, mask_path)
+        n_kept = int(frame_mask.sum())
+        print(
+            f"  Informative-frame filter ON ({mask_path}): keeping {n_kept}/{len(frame_mask)} "
+            f"frames ({len(frame_mask) - n_kept} excluded)."
+        )
+        clip_order, clip_labels, clip_patient_ids, _, _, _ = _load_clip_structure(
+            manifest_path, frame_mask
+        )
+        n_clips_dropped = len(clip_order_full) - len(clip_order)
+        if n_clips_dropped:
+            print(f"  {n_clips_dropped} clip(s) had zero surviving frames and were dropped.")
+        clip_keys_frame = clip_keys_frame_full[frame_mask]
+        manifest_frame_labels = manifest_frame_labels_full[frame_mask]
+        manifest_frame_patient_ids = manifest_frame_patient_ids_full[frame_mask]
+    else:
+        clip_order, clip_labels, clip_patient_ids = (
+            clip_order_full, clip_labels_full, clip_patient_ids_full,
+        )
+        clip_keys_frame = clip_keys_frame_full
+        manifest_frame_labels = manifest_frame_labels_full
+        manifest_frame_patient_ids = manifest_frame_patient_ids_full
+
     n_clips, n_patients = len(clip_order), len(np.unique(clip_patient_ids))
     print(f"  {n_patients} patients, {n_clips} clips, {len(clip_keys_frame)} frames.")
 
     print(f"\nLoading heldout predictions for {len(MODEL_REGISTRY)} configuration(s)...")
     configs = _load_all_configs(
-        client, exp.experiment_id, clip_order, clip_keys_frame, clip_labels, manifest_frame_labels
+        client,
+        exp.experiment_id,
+        clip_order,
+        clip_keys_frame_full,
+        clip_labels,
+        manifest_frame_labels_full,
+        frame_mask,
     )
     if not configs:
         print("No configurations could be loaded, aborting.")
@@ -1167,6 +1254,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--alpha", type=float, default=0.05)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--dry-run", action="store_true", help="Compute and print, skip writing files")
+    p.add_argument(
+        "--filter-informative",
+        action="store_true",
+        help=(
+            "Exclude non-informative frames from the heldout set before aggregation, using "
+            "the precomputed data/ulcer/heldout/informative_mask.csv (see "
+            "_load_informative_mask docstring). Off by default; no re-inference is needed "
+            "either way, since per-frame predictions don't depend on which other frames "
+            "are present."
+        ),
+    )
+    p.add_argument(
+        "--informative-mask",
+        default=None,
+        help="Path to the informative-frame mask CSV (default: informative_mask.csv next to --manifest).",
+    )
     return p
 
 
@@ -1183,4 +1286,6 @@ if __name__ == "__main__":
         alpha=args.alpha,
         seed=args.seed,
         dry_run=args.dry_run,
+        filter_informative=args.filter_informative,
+        informative_mask_path=args.informative_mask,
     )

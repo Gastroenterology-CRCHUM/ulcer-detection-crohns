@@ -58,12 +58,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force feature re-extraction, ignoring any cached results/ulcer/filtering/features_cache.pkl.",
     )
+    parser.add_argument(
+        "--exclude-dirs",
+        type=str,
+        nargs="+",
+        default=[],
+        help=(
+            "Directory name(s) to skip anywhere under --input-dir (e.g. a 'raw' subfolder "
+            "that duplicates already-processed frames from the same tree)."
+        ),
+    )
     return parser
 
 
-def _scan_frames(input_dir: Path) -> list[dict]:
+def _scan_frames(input_dir: Path, exclude_dirs: set[str] | None = None) -> list[dict]:
+    exclude_dirs = exclude_dirs or set()
     records: list[dict] = []
     for path in sorted(input_dir.rglob("*")):
+        if exclude_dirs & set(path.relative_to(input_dir).parts[:-1]):
+            continue
         if path.is_file() and path.suffix.lower() in IMAGE_EXTS:
             records.append({"image_path": path, "rel_path": path.relative_to(input_dir)})
     return records
@@ -108,7 +121,7 @@ def main(args: argparse.Namespace) -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    records = _scan_frames(input_dir)
+    records = _scan_frames(input_dir, exclude_dirs=set(args.exclude_dirs))
     if not records:
         raise RuntimeError(f"No frames found in: {input_dir}")
 
@@ -208,7 +221,12 @@ def main(args: argparse.Namespace) -> None:
             }
         )
 
-    pd.DataFrame(rows).to_csv(output_dir / "predictions.csv", index=False)
+    pred_df = pd.DataFrame(rows)
+    pred_df.to_csv(output_dir / "predictions.csv", index=False)
+
+    mask_df = pred_df[["relative_path"]].copy()
+    mask_df["informative"] = (pred_df["category"] == "informative").astype(int)
+    mask_df.to_csv(output_dir / "informative_mask.csv", index=False)
 
     stats = {
         "input_dir": str(input_dir),

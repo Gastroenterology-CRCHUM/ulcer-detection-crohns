@@ -1,6 +1,6 @@
 pair_id,effect,architecture,config_a,config_b,auroc_a_ensemble,auroc_b_ensemble,delta_auroc_ensemble,boot_ci_bca_lower,boot_ci_bca_upper,n_bootstrap_dropped,delong_ensemble_z,delong_ensemble_p,auroc_a_bestfold,auroc_b_bestfold,delta_auroc_bestfold,delong_bestfold_z,delong_bestfold_p,delong_ensemble_p_holm,delong_bestfold_p_holm
-method_resnet50,method,ResNet-50,resnet50_imagenet_sup,resnet50_imagenet,0.9324,0.9382,-0.0058,-0.0306,0.0266,0,-0.418,0.6763,0.9064,0.9527,-0.0463,-1.899,0.0576,1.0,0.2878
-method_vitb16,method,ViT-Base/16,vitb16_imagenet_sup,vitb16_imagenet,0.9431,0.9392,0.0039,-0.018,0.0437,0,0.265,0.791,0.9546,0.9421,0.0125,0.716,0.4739,1.0,1.0
-method_vits16,method,ViT-Small/16,vits16_imagenet_hf,vits16_imagenet,0.9508,0.9411,0.0097,-0.0063,0.0415,0,1.103,0.27,0.9585,0.9527,0.0058,0.631,0.5282,0.81,1.0
-corpus_resnet50,corpus,ResNet-50,resnet50_imagenet,resnet50_gastronet,0.9382,0.9653,-0.027,-0.1112,0.0037,0,-1.529,0.1262,0.9527,0.9624,-0.0097,-0.561,0.5745,0.6311,1.0
-corpus_vits16,corpus,ViT-Small/16,vits16_imagenet,vits16_gastronet,0.9411,0.9633,-0.0222,-0.0652,0.0066,0,-1.392,0.1639,0.9527,0.944,0.0087,0.373,0.7091,0.6557,1.0
+method_resnet50,method,ResNet-50,resnet50_imagenet_sup,resnet50_imagenet,0.9392,0.9402,-0.001,-0.0234,0.0281,0,-0.071,0.9437,0.9141,0.9537,-0.0396,-1.804,0.0712,1.0,0.3561
+method_vitb16,method,ViT-Base/16,vitb16_imagenet_sup,vitb16_imagenet,0.9469,0.945,0.0019,-0.0233,0.0308,0,0.144,0.8851,0.9585,0.9546,0.0039,0.257,0.7974,1.0,1.0
+method_vits16,method,ViT-Small/16,vits16_imagenet_hf,vits16_imagenet,0.9556,0.945,0.0106,-0.0013,0.0377,0,1.372,0.1701,0.9624,0.9585,0.0039,0.4,0.6892,0.6819,1.0
+corpus_resnet50,corpus,ResNet-50,resnet50_imagenet,resnet50_gastronet,0.9402,0.9681,-0.028,-0.1135,0.0046,0,-1.489,0.1364,0.9537,0.9653,-0.0116,-0.726,0.4678,0.6819,1.0
+corpus_vits16,corpus,ViT-Small/16,vits16_imagenet,vits16_gastronet,0.945,0.9662,-0.0212,-0.0657,0.0036,0,-1.33,0.1836,0.9585,0.9527,0.0058,0.27,0.7869,0.6819,1.0

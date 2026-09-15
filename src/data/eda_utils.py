@@ -92,7 +92,9 @@ def annotation_duration_ulcer(excel_path: Path) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def plot_filter_outcomes(pred_df: pd.DataFrame, output_dir: Path) -> None:
+def plot_filter_outcomes(
+    pred_df: pd.DataFrame, output_dir: Path, filename: str = "filter_outcomes.png"
+) -> None:
     if pred_df.empty or "category" not in pred_df.columns:
         return
     counts = (
@@ -111,7 +113,7 @@ def plot_filter_outcomes(pred_df: pd.DataFrame, output_dir: Path) -> None:
     ax.set_title("Filtering outcomes")
     ax.set_ylabel("Frames")
     plt.tight_layout()
-    plt.savefig(output_dir / "filter_outcomes.png", dpi=150, bbox_inches="tight")
+    plt.savefig(output_dir / filename, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 

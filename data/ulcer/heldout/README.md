@@ -25,10 +25,19 @@ heldout/
 ```bash
 python -m scripts.data.preprocess_frames \
     --raw-dir data/ulcer/heldout/raw \
-    --output-dir data/ulcer/heldout
-```
+    --output-dir data/ulcer/heldout/processed
 
 Generates the canonical set (top-level `Ulcer/` + `NonUlcer/`) composed of the ROI-cropped frames. It matches the 1,573 frames / 65 clips (37 ulcer-positive, 28 ulcer-negative) / 19 patients used to produce Tables 1 and 2 in the paper.
+
+## Generating the informative-frame mask
+
+```bash
+python -m scripts.noninformative.filter_frames \
+    --input-dir data/ulcer/heldout/processed \
+    --output-dir data/ulcer/heldout \
+```
+
+Writes `informative_mask.csv` (`relative_path,informative`) into `data/ulcer/heldout`. Consumed by `effect_decomposition.py --filter-informative` (see `_load_informative_mask`).
 
 ## Generating heldout_temporal_manifest.csv
 
