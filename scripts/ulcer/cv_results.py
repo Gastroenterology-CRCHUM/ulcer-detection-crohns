@@ -219,17 +219,18 @@ def _plot_auroc_legend_bar(keys, means, stds, title, output_path, *, ref_line=No
     """One tightly-packed cluster of bars (all models in a single 'AUROC'
     x-slot)"""
     labels = [f"{config_label(k)}  ({m:.3f} +/- {s:.3f})" for k, m, s in zip(keys, means, stds)]
-    fig, ax = plt.subplots(figsize=(8.5, 6.4))
+    fig, ax = plt.subplots(figsize=(12, 8))
     _draw_grouped_bars(
         ax, keys, labels, {"auroc": list(means)}, {"auroc": list(stds)}, [metric_label("auroc")]
     )
     if ref_line is not None:
         ax.axhline(ref_line, linestyle="--", color="#c3c2b7", linewidth=1, label=ref_label)
-    ax.set_ylabel("Validation-fold AUROC (mean +/- std across folds)")
-    ax.set_title(title)
+    ax.set_ylabel("Validation-fold AUROC (mean +/- std)", fontsize=18)
+    ax.set_title(title, fontsize=24, fontweight="bold")
+    ax.tick_params(labelsize=16)
     fig.tight_layout(rect=(0, 0.30, 1, 1))
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=2, fontsize=8, frameon=True)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=1, fontsize=15, frameon=True)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 

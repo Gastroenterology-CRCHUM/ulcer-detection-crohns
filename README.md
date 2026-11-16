@@ -478,4 +478,4 @@ pytest tests/ --cov=src --cov=scripts
 
 ## Citation
 
-If you use this code, please cite the paper (citation details to be added upon publication).
+If you use this code, please cite the paper.

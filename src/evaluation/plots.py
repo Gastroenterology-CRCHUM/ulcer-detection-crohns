@@ -233,32 +233,33 @@ def plot_roc_curves(
         ax.plot(
             entry["fpr"],
             entry["tpr"],
-            linewidth=2,
+            linewidth=3,
             color=entry.get("color"),
             label=f"{entry['name']}  (AUC = {entry['auc']:.3f})",
         )
 
-    ax.plot([0, 1], [0, 1], "k--", linewidth=1, label="Chance")
+    ax.plot([0, 1], [0, 1], "k--", linewidth=1.5, label="Chance")
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel("1 − Specificity  (FPR)")
-    ax.set_ylabel("Sensitivity  (TPR)")
-    ax.set_title(title)
-    ax.grid(alpha=0.3)
+    ax.set_xlabel("1 - Specificity (FPR)", fontsize=18)
+    ax.set_ylabel("Sensitivity (TPR)", fontsize=18)
+    ax.set_title(title, fontsize=24, fontweight="bold")
+    ax.tick_params(labelsize=16)
+    ax.grid(alpha=0.2, linewidth=0.8)
 
     n_series = len(roc_data) + 1
     ncol = 2 if n_series > 5 else 1
     if owns_figure:
         fig.tight_layout(rect=(0, 0.20, 1, 1))
         ax.legend(
-            loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=ncol, fontsize=9, frameon=True
+            loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=1, fontsize=16, frameon=True
         )
     else:
         # Each panel keeps its OWN legend (AUC differs per panel, e.g. frame
         # vs clip level, so a single shared legend can't show both) -- the
         # caller reserves bottom margin for it via its own tight_layout rect.
         ax.legend(
-            loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=ncol, fontsize=8, frameon=True
+            loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=1, fontsize=13, frameon=True
         )
     return fig
 
