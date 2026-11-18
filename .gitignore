@@ -35,6 +35,7 @@ output/
 # Results (locally generated)
 results/ulcer/filtering/
 results/ulcer/heldout/bootstrap/
+results/ulcer/paper/
 
 # Data (user must provide)
 data/ulcer/raw/*

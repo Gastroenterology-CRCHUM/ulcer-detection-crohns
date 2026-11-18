@@ -458,10 +458,20 @@ def plot_ensemble_roc(
                 "color": config_color(model_key),
             }
         )
-    fig, (ax_frame, ax_clip) = plt.subplots(1, 2, figsize=(15.5, 8.2))
+    fig, (ax_frame, ax_clip) = plt.subplots(1, 2, figsize=(17, 8.5))
     plot_roc_curves(roc_data_frame, title="Frame level", ax=ax_frame)
     plot_roc_curves(roc_data_clip, title="Clip level (mean-probability aggregation)", ax=ax_clip)
-    fig.suptitle("Heldout ensemble ROC curves", fontsize=13, fontweight="bold")
-    fig.tight_layout(rect=(0, 0.17, 1, 0.95))
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    fig.suptitle("Heldout ensemble ROC curves", fontsize=26, fontweight="bold")
+    # Each panel's legend hangs below its axes: kept out of the layout so it does not
+    # shrink the axes, then added back to the saved image's tight bounding box.
+    legends = [ax.get_legend() for ax in (ax_frame, ax_clip)]
+    for legend in legends:
+        legend.set_in_layout(False)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(
+        output_path,
+        dpi=150,
+        bbox_inches="tight",
+        bbox_extra_artists=fig.get_default_bbox_extra_artists() + legends,
+    )
     plt.close(fig)

@@ -1,8 +1,8 @@
 config_a,config_b,delta_auroc,ci_lower,ci_upper,significant
 resnet50_imagenet,resnet50_gastronet,-0.028,-0.1135,0.0046,False
-efficientnetb0,vits16_gastronet,-0.0357,-0.1111,-0.0017,True
+efficientnetb0,vits16_gastronet,-0.0357,-0.1111,-0.0016,True
 resnet50_imagenet,vits16_gastronet,-0.0261,-0.1017,0.0018,False
-resnet50_imagenet_sup,vits16_gastronet,-0.027,-0.0987,0.0,False
+resnet50_imagenet_sup,vits16_gastronet,-0.027,-0.0984,0.0,False
 efficientnetb0,vitb16_imagenet,-0.0145,-0.0967,0.0076,False
 resnet50_imagenet_sup,resnet50_gastronet,-0.029,-0.0937,0.0055,False
 efficientnetb0,vits16_imagenet,-0.0145,-0.0909,0.0064,False
@@ -27,7 +27,7 @@ resnet50_gastronet,vits16_gastronet,0.0019,-0.0238,0.0315,False
 resnet50_imagenet_sup,resnet50_imagenet,-0.001,-0.0234,0.0281,False
 vitb16_imagenet_sup,vitb16_imagenet,0.0019,-0.0233,0.0308,False
 resnet50_gastronet,vits16_imagenet_hf,0.0125,-0.0177,0.0467,False
-vitb16_imagenet,vits16_imagenet,0.0,-0.0142,0.0114,False
+vitb16_imagenet,vits16_imagenet,0.0,-0.0131,0.0123,False
 resnet50_imagenet_sup,efficientnetb0,0.0087,-0.0096,0.0391,False
 resnet50_imagenet,efficientnetb0,0.0097,-0.0055,0.0338,False
 resnet50_gastronet,vits16_imagenet,0.0232,-0.0039,0.0692,False
