@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from src.evaluation.bootstrap import patient_clustered_bootstrap
 from src.evaluation.metrics import (
     _auroc,
     bootstrap_ci,
@@ -10,7 +11,6 @@ from src.evaluation.metrics import (
     compute_clip_metrics,
     compute_metrics_with_ci,
     fmt,
-    patient_clustered_bootstrap,
 )
 
 # ---------------------------------------------------------------------------
@@ -318,6 +318,33 @@ class TestPatientClusteredBootstrap:
             labels, patient_ids, statistic_fn, n_bootstrap=3000, seed=10
         )
         assert result["ci_bca"] != result["ci_percentile"]
+
+    def test_bca_ties_at_point_count_as_half(self):
+        # Symmetric statistic with a large atom exactly at the point estimate
+        # (0): replicates whose |mean| falls under the cutoff collapse to 0.
+        # With ties counted as half, z0 ~ 0 and the BCa interval stays
+        # roughly symmetric around 0. Counting ties as "not below" would put
+        # z0 near -0.67 and push the upper bound down into the atom (hi == 0).
+        rng = np.random.default_rng(12)
+        n_patients = 30
+        x = rng.normal(0.0, 1.0, size=n_patients)
+        x = x - x.mean()
+        labels = np.arange(n_patients) % 2
+        patient_ids = np.array([f"p{i}" for i in range(n_patients)])
+        cutoff = 0.12
+
+        def statistic_fn(w):
+            m = float(np.sum(w * x) / np.sum(w))
+            return m if abs(m) > cutoff else 0.0
+
+        result = patient_clustered_bootstrap(
+            labels, patient_ids, statistic_fn, n_bootstrap=4000, seed=13
+        )
+        assert result["point"] == 0.0
+        assert np.mean(result["replicates"] == 0.0) > 0.3  # the atom is real
+        lo, hi = result["ci_bca"]
+        assert lo < 0.0 < hi
+        assert abs(lo + hi) < 0.25 * (hi - lo)
 
     def test_empty_replicates_returns_nan_ci(self):
         # Every patient is entirely one label -> every resample is degenerate.

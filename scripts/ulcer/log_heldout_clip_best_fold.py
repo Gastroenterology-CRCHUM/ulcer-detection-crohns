@@ -1,17 +1,23 @@
 """
-Post-hoc: compute clip-level heldout CI for the best-fold model.
+scripts/ulcer/log_heldout_clip_best_fold.py
+-------------------------------------------
+Post-hoc clip-level held-out CI for the best-fold model, logged back to MLflow.
 
-Loads `predictions/heldout_best_fold_probs.npy`, aggregates by clip
-(mean probability), finds the best-fold clip threshold from the
-corresponding child run, then computes bootstrap CI and logs:
+Loads the parent run's `predictions/heldout_best_fold_probs.npy`, averages it
+per clip, applies the clip threshold of the fold with the best validation AUROC,
+computes row-wise bootstrap CIs (compute_metrics_with_ci, as during training)
+and logs:
 
-  Artifact  → metrics/heldout_clip_ci.json
-  Metrics   → heldout_clip__{metric}_mean / _lower / _upper
+  Artifact -> metrics/heldout_clip_ci.json
+  Metrics  -> heldout_clip__{metric}_mean, heldout_clip_n_clips
+
+All held-out frames are used (no informative-frame filter), as in the values
+already logged.
 
 Usage
 -----
-    python scripts/ulcer/log_heldout_clip_best_fold.py
-    python scripts/ulcer/log_heldout_clip_best_fold.py --dry-run
+    python -m scripts.ulcer.log_heldout_clip_best_fold
+    python -m scripts.ulcer.log_heldout_clip_best_fold --dry-run
 """
 
 from __future__ import annotations
@@ -27,116 +33,77 @@ warnings.filterwarnings("ignore")
 os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ".")
 
-import numpy as np
-import pandas as pd
-import mlflow
-from mlflow import MlflowClient
+import mlflow  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from mlflow import MlflowClient  # noqa: E402
 
-from src.config.paths import get_default_paths
-from src.evaluation.metrics import compute_metrics_with_ci
-from src.evaluation.mlflow_io import download_npy
+from src.config.paths import get_default_paths  # noqa: E402
+from src.evaluation.heldout import aggregate_to_clip, load_cohort  # noqa: E402
+from src.evaluation.metrics import compute_metrics_with_ci  # noqa: E402
+from src.evaluation.mlflow_io import artifact_paths, download_npy, load_cv_runs  # noqa: E402
 
 
-def _get_best_fold_clip_threshold(
-    client: MlflowClient,
-    exp_id: str,
-    parent_id: str,
-) -> float:
-    """Return clip threshold of the best val-AUROC fold."""
-    children = mlflow.search_runs(
-        experiment_ids=[exp_id],
-        filter_string=f"tags.mlflow.parentRunId = '{parent_id}'",
-        max_results=20,
-    )
-    if children.empty:
+def _best_fold_clip_threshold(children) -> float:
+    """Clip threshold of the fold with the best validation AUROC (0.5 if none)."""
+    if not children:
         return 0.5
-    best_row = children.loc[children["metrics.fold_val_auroc"].fillna(-1).idxmax()]
-    return float(best_row.get("metrics.fold_optimal_clip_threshold", 0.5))
+    best = max(children, key=lambda r: r.data.metrics.get("fold_val_auroc", -1))
+    return float(best.data.metrics.get("fold_optimal_clip_threshold", 0.5))
+
+
+def _ci_summary(metrics: dict) -> dict[str, dict]:
+    """{metric: {mean, lower, upper}} from compute_metrics_with_ci's "_<Metric>_<stat>" keys,
+    the format of the training-time heldout_ci.json."""
+    ci: dict[str, dict] = {}
+    for k, v in metrics.items():
+        if not (k.startswith("_") and isinstance(v, float) and not np.isnan(v)):
+            continue
+        for stat in ("lower", "upper", "mean"):
+            if k.endswith(f"_{stat}"):
+                ci.setdefault(k[1 : -len(stat) - 1], {})[stat] = round(float(v), 4)
+    return ci
 
 
 def process_experiment(
-    experiment_name: str,
-    manifest_path: str,
-    dry_run: bool = False,
-    force: bool = False,
+    experiment_name: str, manifest_path: str, dry_run: bool = False, force: bool = False
 ) -> None:
     client = MlflowClient()
-    exp = client.get_experiment_by_name(experiment_name)
-    if exp is None:
-        print(f"Experiment '{experiment_name}' not found.")
-        return
+    cohort = load_cohort(manifest_path)
+    # First-appearance clip order: the row-wise bootstrap resamples by position, so the
+    # order is kept as in the values already logged.
+    clip_order = list(pd.unique(cohort.frame_clip_keys))
+    clip_labels = cohort.clip_labels_in(clip_order)
 
-    df_hm = pd.read_csv(manifest_path)
-    clip_keys = df_hm["clip_key"].values
-    df_clip_ref = (
-        df_hm.groupby("clip_key", sort=False)
-        .agg(clip_label=("label", lambda x: int(x.mode()[0])))
-        .reset_index()
-    )
+    runs = load_cv_runs(client, experiment_name)
+    print(f"Found {len(runs)} CV parent run(s).")
 
-    all_runs = client.search_runs(experiment_ids=[exp.experiment_id], max_results=1000)
-    parents = [r for r in all_runs if not r.data.tags.get("mlflow.parentRunId")]
-    print(f"Found {len(parents)} parent run(s).")
-
-    for parent in parents:
-        model = parent.data.tags.get("model", parent.info.run_id[:8])
+    for model_key, (parent, children) in runs.items():
         run_id = parent.info.run_id
+        if not force and "metrics/heldout_clip_ci.json" in artifact_paths(
+            client, run_id, "metrics"
+        ):
+            print(f"  {model_key}: heldout_clip_ci.json already present, skip.")
+            continue
 
-        # Skip if already logged
-        if not force:
-            arts = [a.path for a in client.list_artifacts(run_id, "metrics")]
-            if "metrics/heldout_clip_ci.json" in arts:
-                print(f"  {model}: heldout_clip_ci.json already present, skip.")
-                continue
-
-        # Load best-fold heldout frame probs
         try:
             probs = download_npy(client, run_id, "predictions/heldout_best_fold_probs.npy")
         except Exception as e:
-            print(f"  {model}: cannot load heldout_best_fold_probs, {e}")
+            print(f"  {model_key}: cannot load heldout_best_fold_probs, {e}")
             continue
 
-        # Aggregate by clip
-        df_tmp = pd.DataFrame({"clip_key": clip_keys, "prob": probs})
-        clip_df = (
-            df_tmp.groupby("clip_key", sort=False)["prob"]
-            .mean()
-            .reset_index()
-            .merge(df_clip_ref, on="clip_key")
-        )
-        clip_probs = clip_df["prob"].values
-        clip_labels = clip_df["clip_label"].values
+        clip_probs = aggregate_to_clip(probs, cohort.frame_clip_keys, clip_order)
+        threshold = _best_fold_clip_threshold(children)
+        print(f"  {model_key}: {len(clip_order)} clips, thresh={threshold:.3f}")
 
-        # Get clip threshold from best fold child run
-        clip_thresh = _get_best_fold_clip_threshold(client, exp.experiment_id, run_id)
-        clip_preds = (clip_probs >= clip_thresh).astype(int)
-
-        print(f"  {model}: {len(clip_df)} clips, thresh={clip_thresh:.3f}")
-
-        # Bootstrap CI
         metrics = compute_metrics_with_ci(
             clip_labels,
-            clip_preds,
+            (clip_probs >= threshold).astype(int),
             clip_probs,
             n_bootstrap=1000,
             seed=42,
         )
-
-        # Build CI dict (same format as heldout_ci.json)
-        ci: dict[str, dict] = {}
-        for k, v in metrics.items():
-            if not (k.startswith("_") and isinstance(v, float) and not np.isnan(v)):
-                continue
-            if k.endswith("_lower"):
-                name = k[1:-6]
-                ci.setdefault(name, {})["lower"] = round(float(v), 4)
-            elif k.endswith("_upper"):
-                name = k[1:-6]
-                ci.setdefault(name, {})["upper"] = round(float(v), 4)
-            elif k.endswith("_mean"):
-                name = k[1:-5]
-                ci.setdefault(name, {})["mean"] = round(float(v), 4)
-
+        ci = _ci_summary(metrics)
         for name, d in ci.items():
             print(
                 f"    {name}: {d.get('mean', '?'):.3f} "
@@ -147,20 +114,16 @@ def process_experiment(
             continue
 
         with mlflow.start_run(run_id=run_id):
-            # Log CI artifact
             with tempfile.TemporaryDirectory() as tmp:
                 path = os.path.join(tmp, "heldout_clip_ci.json")
                 with open(path, "w") as f:
                     json.dump(ci, f, indent=2)
                 mlflow.log_artifact(path, artifact_path="metrics")
-
-            # Log scalar metrics
             mlflow.log_metrics(
                 {f"heldout_clip__{name}_mean": d["mean"] for name, d in ci.items() if "mean" in d}
             )
-            mlflow.log_metric("heldout_clip_n_clips", len(clip_df))
-
-        print(f"    → logged heldout_clip_ci.json")
+            mlflow.log_metric("heldout_clip_n_clips", len(clip_order))
+        print("    -> logged heldout_clip_ci.json")
 
     print("Done.")
 
@@ -171,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--experiment", default="ulcer_detection")
+    p.add_argument("--mlflow-uri", default=cfg.mlflow_db)
     p.add_argument("--manifest", default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"))
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
@@ -183,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
+    mlflow.set_tracking_uri(args.mlflow_uri)
     if args.dry_run:
         print("[DRY RUN]")
     process_experiment(args.experiment, args.manifest, dry_run=args.dry_run, force=args.force)

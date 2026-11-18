@@ -27,8 +27,8 @@ Output: results/ulcer/eda/
 
 Usage
 -----
-    python scripts/ulcer/eda.py
-    python scripts/ulcer/eda.py --image-stats --image-sample-size 500
+    python -m scripts.ulcer.eda
+    python -m scripts.ulcer.eda --image-stats --image-sample-size 500
 """
 
 from __future__ import annotations
@@ -67,6 +67,72 @@ plt.style.use("seaborn-v0_8-whitegrid")
 sns.set_palette("husl")
 
 SPLITS = ["train", "val", "test"]
+NON_ULCER_COLOR, ULCER_COLOR = "#2ecc71", "#e74c3c"
+CLASS_COLORS = [NON_ULCER_COLOR, ULCER_COLOR]  # bar order: NonUlcer, Ulcer
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _count_summary(counts: pd.Series) -> dict:
+    """mean / std / min / max / median of a per-clip count."""
+    return {
+        "mean": counts.mean(),
+        "std": counts.std(),
+        "min": int(counts.min()),
+        "max": int(counts.max()),
+        "median": counts.median(),
+    }
+
+
+def _class_counts(df: pd.DataFrame) -> dict:
+    """Total / ulcer-positive / ulcer-negative row counts (frames or clips)."""
+    return {
+        "total": len(df),
+        "ulcer_positive": int((df["label"] == 1).sum()),
+        "ulcer_negative": int((df["label"] == 0).sum()),
+    }
+
+
+def _label_bars(ax, bars, texts, offset: float, **text_kw) -> None:
+    """Write `texts` just above each bar."""
+    for bar, text in zip(bars, texts):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + offset,
+            text,
+            ha="center",
+            va="bottom",
+            **text_kw,
+        )
+
+
+def _overview_rows(p: dict, c: dict, f: dict) -> list[str]:
+    """Patients / clips / frames table (Total, Ulcer+, Ulcer-) of the text report."""
+    return [
+        f"  {'':40} {'Total':>8} {'Ulcer+':>8} {'Ulcer-':>8}",
+        "  " + "-" * 64,
+        f"  {'Patients':<40} {p['total']:>8} {p['ulcer_positive']:>8} {p['ulcer_negative']:>8}",
+        f"  {'Clips':<40} {c['total']:>8} {c['ulcer_positive']:>8} {c['ulcer_negative']:>8}",
+        f"  {'Frames':<40} {f['total']:>8,} {f['ulcer_positive']:>8,} {f['ulcer_negative']:>8,}",
+    ]
+
+
+def _frames_per_clip_line(label: str, fpc: dict) -> str:
+    return (
+        f"  {label}  mean {fpc['mean']:.1f} +/- {fpc['std']:.1f}"
+        f"   [min {fpc['min']} - max {fpc['max']} | median {fpc['median']:.0f}]"
+    )
+
+
+def _duration_line(label: str, s: dict) -> str:
+    return (
+        f"  {label}  mean {s['mean']:.1f} +/- {s['std']:.1f}"
+        f"   [min {s['min']:.1f} - max {s['max']:.1f} | median {s['median']:.1f}]"
+        f"   n={s['count']}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -200,38 +266,24 @@ class DatasetEDA:
         clip_df = df.groupby("clip_key").agg(**agg_dict).reset_index()
         self._clip_df = clip_df
 
-        n_clips_ulcer = int((clip_df["label"] == 1).sum())
-        n_clips_non_ulcer = int((clip_df["label"] == 0).sum())
-
+        n_frames = clip_df["n_frames"]
+        frames_per_clip = {
+            **_count_summary(n_frames),
+            "fps": self.fps,
+            "duration_s_mean": n_frames.mean() / self.fps,
+            "duration_s_std": n_frames.std() / self.fps,
+            "duration_s_min": n_frames.min() / self.fps,
+            "duration_s_max": n_frames.max() / self.fps,
+            "duration_s_median": n_frames.median() / self.fps,
+        }
         stats: dict = {
             "patients": {
                 "total": n_patients_total,
                 "ulcer_positive": len(ulcer_patients),
                 "ulcer_negative": len(non_ulcer_patients - ulcer_patients),
             },
-            "clips": {
-                "total": len(clip_df),
-                "ulcer_positive": n_clips_ulcer,
-                "ulcer_negative": n_clips_non_ulcer,
-                "frames_per_clip": {
-                    "mean": clip_df["n_frames"].mean(),
-                    "std": clip_df["n_frames"].std(),
-                    "min": int(clip_df["n_frames"].min()),
-                    "max": int(clip_df["n_frames"].max()),
-                    "median": clip_df["n_frames"].median(),
-                    "fps": self.fps,
-                    "duration_s_mean": clip_df["n_frames"].mean() / self.fps,
-                    "duration_s_std": clip_df["n_frames"].std() / self.fps,
-                    "duration_s_min": clip_df["n_frames"].min() / self.fps,
-                    "duration_s_max": clip_df["n_frames"].max() / self.fps,
-                    "duration_s_median": clip_df["n_frames"].median() / self.fps,
-                },
-            },
-            "frames": {
-                "total": len(df),
-                "ulcer_positive": int((df["label"] == 1).sum()),
-                "ulcer_negative": int((df["label"] == 0).sum()),
-            },
+            "clips": {**_class_counts(clip_df), "frames_per_clip": frames_per_clip},
+            "frames": _class_counts(df),
         }
 
         if "split" in df.columns:
@@ -276,43 +328,25 @@ class DatasetEDA:
                 "ulcer_negative": len(non_ulcer_patients),
             },
             "clips": {
-                "total": len(clip_df),
-                "ulcer_positive": int((clip_df["label"] == 1).sum()),
-                "ulcer_negative": int((clip_df["label"] == 0).sum()),
-                "frames_per_clip": {
-                    "mean": clip_df["n_frames"].mean(),
-                    "std": clip_df["n_frames"].std(),
-                    "min": int(clip_df["n_frames"].min()),
-                    "max": int(clip_df["n_frames"].max()),
-                    "median": clip_df["n_frames"].median(),
-                },
+                **_class_counts(clip_df),
+                "frames_per_clip": _count_summary(clip_df["n_frames"]),
             },
-            "frames": {
-                "total": len(df),
-                "ulcer_positive": int((df["label"] == 1).sum()),
-                "ulcer_negative": int((df["label"] == 0).sum()),
-            },
+            "frames": _class_counts(df),
         }
 
         if self.heldout_predictions_path and self.heldout_predictions_path.exists():
             pred_df = pd.read_csv(self.heldout_predictions_path)
-            merged = df.merge(pred_df[["relative_path", "category"]], on="relative_path", how="left")
+            merged = df.merge(
+                pred_df[["relative_path", "category"]], on="relative_path", how="left"
+            )
             informative_df = merged[merged["category"] == "informative"]
             informative_clip_df = informative_df.groupby("clip_key").agg(
                 n_frames=("label", "count")
             )
             stats["frames_after_filtration"] = {
-                "total": len(informative_df),
-                "ulcer_positive": int((informative_df["label"] == 1).sum()),
-                "ulcer_negative": int((informative_df["label"] == 0).sum()),
+                **_class_counts(informative_df),
                 "non_informative": len(merged) - len(informative_df),
-                "frames_per_clip": {
-                    "mean": informative_clip_df["n_frames"].mean(),
-                    "std": informative_clip_df["n_frames"].std(),
-                    "min": int(informative_clip_df["n_frames"].min()),
-                    "max": int(informative_clip_df["n_frames"].max()),
-                    "median": informative_clip_df["n_frames"].median(),
-                },
+                "frames_per_clip": _count_summary(informative_clip_df["n_frames"]),
             }
 
         if self.df is not None and "patient_id" in self.df.columns:
@@ -416,33 +450,19 @@ class DatasetEDA:
 
         ax = axes[0]
         counts = self.df["class_name"].value_counts()
-        bars = ax.bar(counts.index, counts.values, color=["#2ecc71", "#e74c3c"], edgecolor="black")
-        for bar, n in zip(bars, counts.values):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 30,
-                f"{n:,}\n({n / len(self.df) * 100:.1f}%)",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-            )
+        bars = ax.bar(counts.index, counts.values, color=CLASS_COLORS, edgecolor="black")
+        n_total = len(self.df)
+        texts = [f"{n:,}\n({n / n_total * 100:.1f}%)" for n in counts.values]
+        _label_bars(ax, bars, texts, 30, fontsize=9)
         ax.set_title("Frame-level class distribution")
         ax.set_ylabel("Frames")
 
         ax = axes[1]
         clip_counts = self._clip_df["label"].map({0: "NonUlcer", 1: "Ulcer"}).value_counts()
-        bars = ax.bar(
-            clip_counts.index, clip_counts.values, color=["#2ecc71", "#e74c3c"], edgecolor="black"
-        )
-        for bar, n in zip(bars, clip_counts.values):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.3,
-                f"{n}\n({n / len(self._clip_df) * 100:.1f}%)",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-            )
+        bars = ax.bar(clip_counts.index, clip_counts.values, color=CLASS_COLORS, edgecolor="black")
+        n_total = len(self._clip_df)
+        texts = [f"{n}\n({n / n_total * 100:.1f}%)" for n in clip_counts.values]
+        _label_bars(ax, bars, texts, 0.3, fontsize=9)
         ax.set_title("Clip-level class distribution")
         ax.set_ylabel("Clips")
 
@@ -454,7 +474,7 @@ class DatasetEDA:
         fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
         ax = axes[0]
-        for label, color, name in [(1, "#e74c3c", "Ulcer"), (0, "#2ecc71", "NonUlcer")]:
+        for label, color, name in [(1, ULCER_COLOR, "Ulcer"), (0, NON_ULCER_COLOR, "NonUlcer")]:
             data = self._clip_df[self._clip_df["label"] == label]["n_frames"]
             ax.hist(data, bins=25, alpha=0.6, color=color, edgecolor="black", label=name)
         ax.axvline(
@@ -482,7 +502,7 @@ class DatasetEDA:
                 types.values(),
                 labels=types.keys(),
                 autopct="%1.1f%%",
-                colors=["#3498db", "#e74c3c", "#2ecc71"],
+                colors=["#3498db", ULCER_COLOR, NON_ULCER_COLOR],
                 explode=[0.02] * len(types),
             )
             ax.set_title("Patient type distribution")
@@ -520,16 +540,8 @@ class DatasetEDA:
             color=[colors[s] for s in pt_counts.index],
             edgecolor="black",
         )
-        for bar, n in zip(bars, pt_counts.values):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.1,
-                str(n),
-                ha="center",
-                va="bottom",
-                fontsize=11,
-                fontweight="bold",
-            )
+        texts = [str(n) for n in pt_counts.values]
+        _label_bars(ax, bars, texts, 0.1, fontsize=11, fontweight="bold")
         ax.set_title("Patients per split")
         ax.set_ylabel("Patients")
 
@@ -541,9 +553,7 @@ class DatasetEDA:
             .reindex(present_splits)
             .rename(columns={0: "NonUlcer", 1: "Ulcer"})
         )
-        clip_split.plot(
-            kind="bar", stacked=True, ax=ax, color=["#2ecc71", "#e74c3c"], edgecolor="black"
-        )
+        clip_split.plot(kind="bar", stacked=True, ax=ax, color=CLASS_COLORS, edgecolor="black")
         ax.set_title("Clips per split")
         ax.set_ylabel("Clips")
         ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
@@ -554,9 +564,7 @@ class DatasetEDA:
             )
 
         ax = axes[2]
-        frame_split.plot(
-            kind="bar", stacked=True, ax=ax, color=["#2ecc71", "#e74c3c"], edgecolor="black"
-        )
+        frame_split.plot(kind="bar", stacked=True, ax=ax, color=CLASS_COLORS, edgecolor="black")
         ax.set_title("Frames per split")
         ax.set_ylabel("Frames")
         ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
@@ -573,9 +581,7 @@ class DatasetEDA:
         # --- class balance per split ---
         fig, ax = plt.subplots(figsize=(6, 5))
         balance_pct = frame_split.div(frame_split.sum(axis=1), axis=0) * 100
-        balance_pct.plot(
-            kind="bar", stacked=True, ax=ax, color=["#2ecc71", "#e74c3c"], edgecolor="black"
-        )
+        balance_pct.plot(kind="bar", stacked=True, ax=ax, color=CLASS_COLORS, edgecolor="black")
         ax.axhline(50, color="black", linestyle="--", alpha=0.4)
         ax.set_title("Class balance per split (%)")
         ax.set_ylabel("%")
@@ -593,7 +599,7 @@ class DatasetEDA:
         fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
         ax = axes[0]
-        color_map = img_df["class_name"].map({"Ulcer": "#e74c3c", "NonUlcer": "#2ecc71"})
+        color_map = img_df["class_name"].map({"Ulcer": ULCER_COLOR, "NonUlcer": NON_ULCER_COLOR})
         ax.scatter(
             img_df["width"],
             img_df["height"],
@@ -608,16 +614,21 @@ class DatasetEDA:
         ax.legend(
             handles=[
                 plt.Line2D(
-                    [0], [0], marker="o", color="w", markerfacecolor="#2ecc71", label="NonUlcer"
+                    [0],
+                    [0],
+                    marker="o",
+                    color="w",
+                    markerfacecolor=NON_ULCER_COLOR,
+                    label="NonUlcer",
                 ),
                 plt.Line2D(
-                    [0], [0], marker="o", color="w", markerfacecolor="#e74c3c", label="Ulcer"
+                    [0], [0], marker="o", color="w", markerfacecolor=ULCER_COLOR, label="Ulcer"
                 ),
             ]
         )
 
         ax = axes[1]
-        for cls, color in [("NonUlcer", "#2ecc71"), ("Ulcer", "#e74c3c")]:
+        for cls, color in [("NonUlcer", NON_ULCER_COLOR), ("Ulcer", ULCER_COLOR)]:
             ax.hist(
                 img_df[img_df["class_name"] == cls]["file_size_kb"],
                 bins=30,
@@ -678,28 +689,27 @@ class DatasetEDA:
 
         ax = axes[0]
         counts = df["class_name"].value_counts()
-        bars = ax.bar(counts.index, counts.values, color=["#2ecc71", "#e74c3c"], edgecolor="black")
-        for bar, n in zip(bars, counts.values):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + max(counts.values) * 0.01,
-                f"{n:,}\n({n / len(df) * 100:.1f}%)",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-            )
+        bars = ax.bar(counts.index, counts.values, color=CLASS_COLORS, edgecolor="black")
+        texts = [f"{n:,}\n({n / len(df) * 100:.1f}%)" for n in counts.values]
+        _label_bars(ax, bars, texts, max(counts.values) * 0.01, fontsize=9)
         ax.set_title("Class balance, frames")
         ax.set_ylabel("Frames")
 
         ax = axes[1]
         summary = build_patient_summary(df)
         x = range(len(summary))
-        ax.bar(x, summary["non_ulcer_frames"], color="#2ecc71", edgecolor="black", label="NonUlcer")
+        ax.bar(
+            x,
+            summary["non_ulcer_frames"],
+            color=NON_ULCER_COLOR,
+            edgecolor="black",
+            label="NonUlcer",
+        )
         ax.bar(
             x,
             summary["ulcer_frames"],
             bottom=summary["non_ulcer_frames"],
-            color="#e74c3c",
+            color=ULCER_COLOR,
             edgecolor="black",
             label="Ulcer",
         )
@@ -710,7 +720,7 @@ class DatasetEDA:
         ax.legend(title="Class")
 
         ax = axes[2]
-        for label, color, name in [(1, "#e74c3c", "Ulcer"), (0, "#2ecc71", "NonUlcer")]:
+        for label, color, name in [(1, ULCER_COLOR, "Ulcer"), (0, NON_ULCER_COLOR, "NonUlcer")]:
             data = clip_df[clip_df["label"] == label]["n_frames"]
             ax.hist(data, bins=15, alpha=0.6, color=color, edgecolor="black", label=name)
         ax.axvline(
@@ -756,23 +766,9 @@ class DatasetEDA:
         h1("ULCER DETECTION - EXPLORATORY DATA ANALYSIS REPORT")
 
         h2("1. DATASET OVERVIEW")
-        p, c, f = stats["patients"], stats["clips"], stats["frames"]
-        lines.append(f"  {'':40} {'Total':>8} {'Ulcer+':>8} {'Ulcer-':>8}")
-        lines.append("  " + "-" * 64)
-        lines.append(
-            f"  {'Patients':<40} {p['total']:>8} {p['ulcer_positive']:>8} {p['ulcer_negative']:>8}"
-        )
-        lines.append(
-            f"  {'Clips':<40} {c['total']:>8} {c['ulcer_positive']:>8} {c['ulcer_negative']:>8}"
-        )
-        lines.append(
-            f"  {'Frames':<40} {f['total']:>8,} {f['ulcer_positive']:>8,} {f['ulcer_negative']:>8,}"
-        )
-        fpc = c["frames_per_clip"]
-        lines.append(
-            f"\n  Frames/clip  mean {fpc['mean']:.1f} +/- {fpc['std']:.1f}"
-            f"   [min {fpc['min']} - max {fpc['max']} | median {fpc['median']:.0f}]"
-        )
+        lines += _overview_rows(stats["patients"], stats["clips"], stats["frames"])
+        fpc = stats["clips"]["frames_per_clip"]
+        lines.append("\n" + _frames_per_clip_line("Frames/clip", fpc))
         lines.append(
             f"  Duration (s) mean {fpc['duration_s_mean']:.1f} +/- {fpc['duration_s_std']:.1f}"
             f"   [min {fpc['duration_s_min']:.1f} - max {fpc['duration_s_max']:.1f}"
@@ -785,17 +781,9 @@ class DatasetEDA:
             for name in ("Ulcer", "NonUlcer"):
                 s = annotation_stats.get(name, {})
                 if s.get("count", 0):
-                    lines.append(
-                        f"  Annotated duration ({name}, Excel)"
-                        f"  mean {s['mean']:.1f} +/- {s['std']:.1f}"
-                        f"   [min {s['min']:.1f} - max {s['max']:.1f} | median {s['median']:.1f}]"
-                        f"   n={s['count']}"
-                    )
+                    lines.append(_duration_line(f"Annotated duration ({name}, Excel)", s))
             lines.append(
-                f"  Annotated duration (all, Excel)"
-                f"  mean {annotation_stats['_total']['mean']:.1f} +/- {annotation_stats['_total']['std']:.1f}"
-                f"   [min {annotation_stats['_total']['min']:.1f} - max {annotation_stats['_total']['max']:.1f} | median {annotation_stats['_total']['median']:.1f}]"
-                f"   n={annotation_stats['_total']['count']}"
+                _duration_line("Annotated duration (all, Excel)", annotation_stats["_total"])
             )
 
         if "per_split" in stats:
@@ -892,18 +880,8 @@ class DatasetEDA:
 
         if heldout_stats:
             h2("6. HELDOUT TEMPORAL COHORT")
-            p, c, f = heldout_stats["patients"], heldout_stats["clips"], heldout_stats["frames"]
-            lines.append(f"  {'':40} {'Total':>8} {'Ulcer+':>8} {'Ulcer-':>8}")
-            lines.append("  " + "-" * 64)
-            lines.append(
-                f"  {'Patients':<40} {p['total']:>8} {p['ulcer_positive']:>8} {p['ulcer_negative']:>8}"
-            )
-            lines.append(
-                f"  {'Clips':<40} {c['total']:>8} {c['ulcer_positive']:>8} {c['ulcer_negative']:>8}"
-            )
-            lines.append(
-                f"  {'Frames':<40} {f['total']:>8,} {f['ulcer_positive']:>8,} {f['ulcer_negative']:>8,}"
-            )
+            c = heldout_stats["clips"]
+            lines += _overview_rows(heldout_stats["patients"], c, heldout_stats["frames"])
             after_filter = heldout_stats.get("frames_after_filtration")
             if after_filter:
                 lines.append(
@@ -911,16 +889,12 @@ class DatasetEDA:
                     f"{after_filter['ulcer_positive']:>8,} {after_filter['ulcer_negative']:>8,}"
                     f"  (excluded: {after_filter['non_informative']:,})"
                 )
-            fpc = c["frames_per_clip"]
-            lines.append(
-                f"\n  Frames/clip  mean {fpc['mean']:.1f} +/- {fpc['std']:.1f}"
-                f"   [min {fpc['min']} - max {fpc['max']} | median {fpc['median']:.0f}]"
-            )
+            lines.append("\n" + _frames_per_clip_line("Frames/clip", c["frames_per_clip"]))
             if after_filter:
-                fpc2 = after_filter["frames_per_clip"]
                 lines.append(
-                    f"  Frames/clip after filtration  mean {fpc2['mean']:.1f} +/- {fpc2['std']:.1f}"
-                    f"   [min {fpc2['min']} - max {fpc2['max']} | median {fpc2['median']:.0f}]"
+                    _frames_per_clip_line(
+                        "Frames/clip after filtration", after_filter["frames_per_clip"]
+                    )
                 )
 
             leakage = heldout_stats.get("patient_leakage", {})

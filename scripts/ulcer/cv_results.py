@@ -2,13 +2,18 @@
 scripts/ulcer/cv_results.py
 ----------------------------
 Cross-validation (training/validation-fold) results across the 9 model
-configurations (no re-inference).
+configurations, from what run_modes.py logged to MLflow (no re-inference).
+
+AUROC is the only metric featured on this side: sensitivity/specificity/F1 use a
+threshold tuned on the same validation fold, so they are not a fair cross-model
+comparison here. They are still recomputed and kept in cv_per_fold_val_metrics.csv
+as diagnostic detail.
 
 Usage
 -----
-    python scripts/ulcer/cv_results.py
-    python scripts/ulcer/cv_results.py --dry-run
-    python scripts/ulcer/cv_results.py --no-val-specificity
+    python -m scripts.ulcer.cv_results
+    python -m scripts.ulcer.cv_results --dry-run
+    python -m scripts.ulcer.cv_results --no-val-specificity
 """
 
 from __future__ import annotations
@@ -23,327 +28,50 @@ warnings.filterwarnings("ignore")
 os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ".")
 
-import matplotlib
+import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import mlflow
-import numpy as np
-import pandas as pd
-from mlflow import MlflowClient
+import matplotlib.pyplot as plt  # noqa: E402
+import mlflow  # noqa: E402
+from mlflow import MlflowClient  # noqa: E402
 
-from src.config.models import MODEL_REGISTRY, get_model_entry
-from src.config.paths import get_default_paths
-from src.evaluation.metrics import METRIC_FNS
-from src.evaluation.rank_tests import (
+from src.config.paths import get_default_paths  # noqa: E402
+from src.evaluation import cv_plots as plots  # noqa: E402
+from src.evaluation import cv_tables as tables  # noqa: E402
+from src.evaluation.mlflow_io import load_cv_runs  # noqa: E402
+from src.evaluation.rank_tests import (  # noqa: E402
     plot_friedman_ranks,
     plot_wilcoxon_pmatrix,
     run_friedman,
     run_wilcoxon_matrix,
 )
-from src.evaluation.reporting import to_markdown
-from src.evaluation.style import (
-    STATUS_NEUTRAL,
-    config_color,
-    config_label,
-    config_labels,
-    metric_label,
-)
+from src.evaluation.reporting import write_table  # noqa: E402
 
 plt.style.use("seaborn-v0_8-whitegrid")
 
-# Fallback when a fold logged no tuned threshold
-CV_THRESHOLD = 0.5
 
-# Parent-logged CV aggregates
-_VAL_METRICS = ("auroc", "f1", "precision", "recall")
-
-# Held-out per-fold metrics logged on each CV child run
-_REPORT_METRICS = ("auroc", "sensitivity", "specificity", "f1")
-_HELDOUT_LEVELS = {
-    "frame": "heldout__{metric}_mean",
-    "clip": "heldout_clip__{metric}_mean",
-}
-
-
-def _load_configs(client: MlflowClient, exp_id: str) -> dict:
-    """Return {model_key: {"parent": Run, "children": [Run, ...]}} for CV parent runs."""
-    all_runs = client.search_runs(experiment_ids=[exp_id], max_results=1000)
-    parents_by_model = {}
-    for r in all_runs:
-        if r.data.tags.get("mlflow.parentRunId"):
-            continue
-        if not r.data.tags.get("training_mode", "").startswith("cv_"):
-            continue
-        parents_by_model[r.data.tags.get("model")] = r
-    children_by_parent: dict = {}
-    for r in all_runs:
-        pid = r.data.tags.get("mlflow.parentRunId")
-        if pid:
-            children_by_parent.setdefault(pid, []).append(r)
-
-    configs: dict = {}
-    for model_key in MODEL_REGISTRY:
-        parent = parents_by_model.get(model_key)
-        if parent is None:
-            print(f"  [warn] {model_key}: no CV parent run found, skipping.")
-            continue
-        children = sorted(
-            children_by_parent.get(parent.info.run_id, []),
-            key=lambda r: int(r.data.params.get("fold", -1)),
+def _report_diagnostics(fold_df, diagnostics: tables.FoldDiagnostics) -> None:
+    if diagnostics.artifact_misses:
+        print(
+            f"\n  [warn] {len(diagnostics.artifact_misses)} fold(s) had no readable val "
+            f"probability artifact, excluded from val specificity: "
+            f"{', '.join(diagnostics.artifact_misses)}"
         )
-        if not children:
-            print(f"  [warn] {model_key}: no child fold runs, skipping.")
-            continue
-        configs[model_key] = {"parent": parent, "children": children}
-    return configs
-
-
-def _parent_metric(parent, key: str, default: float = float("nan")) -> float:
-    return float(parent.data.metrics.get(key, default))
-
-
-def _parent_param(parent, key: str, default=None):
-    return parent.data.params.get(key, default)
-
-
-# Metrics recomputed from the val-fold probability artifacts. AUROC and F1 are
-# recomputed too (not needed -- they are already logged) purely so each fold
-# can be cross-checked against its logged values
-_VAL_ARTIFACT_METRICS = ("AUROC", "Sensitivity", "Specificity", "F1")
-
-# Recomputed-vs-logged agreement tolerance. Logged metrics are full float64,
-# so exact agreement is expected; 1e-4 only absorbs float round-trips.
-_CROSSCHECK_TOL = 1e-4
-
-
-def _val_fold_metrics_from_artifacts(child, fold: int) -> dict | None:
-    """Recompute validation-fold metrics from that fold's probability artifacts.
-
-    Returns {"auroc","sensitivity","specificity","f1", "_mismatch": [...]} or
-    None when the artifacts are missing/unreadable (one fold in this project
-    has a 0-byte val_probs file, so this must degrade rather than raise).
-
-    The threshold used is the fold's own tuned threshold, matching what
-    run_modes.py applied when it logged fold_val_{f1,precision,recall}.
-    """
-    uri = f"{child.info.artifact_uri}/predictions/cv_folds"
-    try:
-        local = mlflow.artifacts.download_artifacts(artifact_uri=uri)
-        probs = np.load(os.path.join(local, f"val_probs_fold{fold}.npy"))
-        labels = np.load(os.path.join(local, f"val_labels_fold{fold}.npy"))
-    except Exception:
-        return None
-    if probs.size == 0 or labels.size == 0 or probs.shape[0] != labels.shape[0]:
-        return None
-
-    if probs.ndim == 2:
-        probs = probs[:, 1]
-    threshold = child.data.metrics.get("fold_optimal_threshold", CV_THRESHOLD)
-    preds = (probs >= threshold).astype(int)
-
-    values = {
-        name.lower(): METRIC_FNS[name](labels, preds, probs) for name in _VAL_ARTIFACT_METRICS
-    }
-
-    # Cross-check the three metrics run_modes.py already logged.
-    mismatch = []
-    for name, logged_key in (
-        ("sensitivity", "fold_val_recall"),
-        ("f1", "fold_val_f1"),
-        ("auroc", "fold_val_auroc"),
-    ):
-        logged = child.data.metrics.get(logged_key)
-        if logged is not None and abs(values[name] - logged) > _CROSSCHECK_TOL:
-            mismatch.append(f"{name}: recomputed {values[name]:.4f} vs logged {logged:.4f}")
-    values["_mismatch"] = mismatch
-    return values
-
-
-def _draw_grouped_bars(ax, keys, labels, metric_values: dict, metric_stds: dict, xlabels) -> None:
-    """Draw one grouped-bar panel: metrics on the x-axis, one bar per model,
-    error bars = std across folds. Used by the held-out two-level chart.
-
-    keys/labels are separate parameters, never one list: config_color raises
-    on anything that isn't a raw MODEL_REGISTRY key, so the color lookup
-    always uses `keys` while the legend text uses `labels`.
-    """
-    metric_names = list(metric_values.keys())
-    n_models = len(keys)
-    x = np.arange(len(metric_names))
-    width = 0.8 / n_models
-    for i, (key, label) in enumerate(zip(keys, labels)):
-        values = [metric_values[m][i] for m in metric_names]
-        yerr = np.nan_to_num(
-            np.array([metric_stds[m][i] for m in metric_names], dtype=float), nan=0.0
+    if diagnostics.crosscheck_failures:
+        print(
+            f"\n  [ERROR] {len(diagnostics.crosscheck_failures)} fold(s) where recomputed "
+            f"metrics disagree with the logged ones -- their specificity is "
+            f"NOT trustworthy:"
         )
-        ax.bar(
-            x + i * width,
-            values,
-            width,
-            yerr=yerr,
-            capsize=2.5,
-            label=label,
-            color=config_color(key),
-            error_kw={"elinewidth": 0.9, "capthick": 0.9, "ecolor": "#4a4a4a"},
+        for msg in diagnostics.crosscheck_failures:
+            print(f"    - {msg}")
+    else:
+        n_ok = int(fold_df["val_specificity"].notna().sum())
+        print(
+            f"\n  Val specificity recomputed for {n_ok}/{len(fold_df)} folds "
+            f"(cv_per_fold_val_metrics.csv); recomputed sensitivity/F1/AUROC "
+            f"match the logged values on all of them."
         )
-    ax.set_xticks(x + width * (n_models - 1) / 2)
-    ax.set_xticklabels(xlabels, rotation=0)
-
-    ax.set_ylim(0, 1.05)
-
-
-def _plot_model_bar(
-    keys, means, stds, ylabel, title, output_path, *, ref_line=None, ref_label=None
-) -> None:
-    """One bar per model, mean +/- std, colored by config_color, config_label
-    rotated on the x-axis. Used for threshold dispersion, where the values
-    (a hyperparameter, not a performance claim) are worth spreading out."""
-    fig, ax = plt.subplots(figsize=(max(9, len(keys) * 1.0), 5.5))
-    x = np.arange(len(keys))
-    ax.bar(x, means, yerr=stds, capsize=4, color=[config_color(k) for k in keys])
-    if ref_line is not None:
-        ax.axhline(ref_line, linestyle="--", color="#c3c2b7", linewidth=1, label=ref_label)
-        ax.legend(loc="upper right", fontsize=8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(config_labels(keys), rotation=30, ha="right")
-    ax.set_ylabel(ylabel)
-    ax.set_ylim(0, 1.05)
-    ax.set_title(title)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _plot_auroc_legend_bar(keys, means, stds, title, output_path, *, ref_line=None, ref_label=None) -> None:
-    """One tightly-packed cluster of bars (all models in a single 'AUROC'
-    x-slot)"""
-    labels = [f"{config_label(k)}  ({m:.3f} +/- {s:.3f})" for k, m, s in zip(keys, means, stds)]
-    fig, ax = plt.subplots(figsize=(12, 8))
-    _draw_grouped_bars(
-        ax, keys, labels, {"auroc": list(means)}, {"auroc": list(stds)}, [metric_label("auroc")]
-    )
-    if ref_line is not None:
-        ax.axhline(ref_line, linestyle="--", color="#c3c2b7", linewidth=1, label=ref_label)
-    ax.set_ylabel("Validation-fold AUROC (mean +/- std)", fontsize=18)
-    ax.set_title(title, fontsize=24, fontweight="bold")
-    ax.tick_params(labelsize=16)
-    fig.tight_layout(rect=(0, 0.30, 1, 1))
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=1, fontsize=15, frameon=True)
-    fig.savefig(output_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _plot_fold_matrix(df: pd.DataFrame, output_path) -> None:
-    """Fold x model AUROC as a plain table, row order = architecture."""
-    fold_cols = [c for c in df.columns if c not in ("Mean", "Std")]
-    header = ["Config"] + [f"Fold {c.split('_')[-1]}" for c in fold_cols] + ["Mean", "Std"]
-
-    fold_values = df[fold_cols].to_numpy(dtype=float)
-    col_max = np.nanmax(fold_values, axis=0)  # per-fold-column max, for bolding
-
-    cell_text, bold_mask = [], []
-    for config_key, row in df.iterrows():
-        cells = [config_label(config_key, short=False)]
-        bmask = [False]
-        for j, c in enumerate(fold_cols):
-            v = row[c]
-            cells.append("n/a" if pd.isna(v) else f"{v:.3f}")
-            bmask.append(bool(not pd.isna(v) and np.isclose(v, col_max[j])))
-        cells.append(f"{row['Mean']:.3f}")
-        bmask.append(False)
-        cells.append(f"{row['Std']:.3f}" if not pd.isna(row["Std"]) else "--")
-        bmask.append(False)
-        cell_text.append(cells)
-        bold_mask.append(bmask)
-
-    fold_means = np.nanmean(fold_values, axis=0)
-    cell_text.append(["Fold mean"] + [f"{v:.3f}" for v in fold_means] + ["", ""])
-    bold_mask.append([False] * len(header))
-
-    col_max_len = [
-        max(len(str(row[j])) for row in [header] + cell_text) for j in range(len(header))
-    ]
-    col_widths = [n / sum(col_max_len) for n in col_max_len]
-    fig_w = max(9.0, 1.2 + 0.145 * sum(col_max_len))
-    fig_h = max(3.2, 0.55 + 0.42 * len(cell_text))
-
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    ax.axis("off")
-    table = ax.table(
-        cellText=cell_text, colLabels=header, colWidths=col_widths, loc="center", cellLoc="center"
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(8.5)
-    table.scale(1, 1.5)
-    for j in range(len(header)):
-        table[0, j].set_facecolor("#e1e0d9")
-        table[0, j].set_text_props(fontweight="bold")
-    for i, config_key in enumerate(df.index, start=1):
-        table[i, 0].set_facecolor(config_color(config_key))
-    for i, bmask in enumerate(bold_mask, start=1):
-        for j, is_bold in enumerate(bmask):
-            if is_bold:
-                table[i, j].set_text_props(fontweight="bold")
-    footer_row = len(cell_text)
-    for j in range(len(header)):
-        table[footer_row, j].set_text_props(style="italic", color=STATUS_NEUTRAL)
-
-    ax.set_title("CV validation-fold AUROC per model, frame-level", fontsize=11, pad=20)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _plot_main_table(df: pd.DataFrame, output_path) -> None:
-    """Render the main CV comparison table as an image (not just CSV/MD) so
-    there's a single figure a reader can drop straight into a slide/manuscript.
-
-    AUROC only (mean +/- std): the one threshold-free validation-fold metric,
-    see module docstring. Sensitivity/specificity/F1/precision stay out of
-    this headline table.
-    """
-    header = ["Config", metric_label("auroc"), "Best fold", "Best-fold AUROC", "Best-fold thr"]
-
-    cell_text = []
-    for _, row in df.iterrows():
-        cell_text.append(
-            [
-                config_label(row["config"], short=False),
-                f"{row['val_auroc_mean']:.3f} +/- {row['val_auroc_std']:.3f}",
-                str(row["best_fold"]),
-                f"{row['best_fold_val_auroc']:.3f}",
-                f"{row['best_fold_threshold']:.3f}",
-            ]
-        )
-
-    col_max_len = [
-        max(len(str(row[j])) for row in [header] + cell_text) for j in range(len(header))
-    ]
-    col_widths = [n / sum(col_max_len) for n in col_max_len]
-    fig_w = max(11.0, 1.6 + 0.11 * sum(col_max_len))
-
-    fig, ax = plt.subplots(figsize=(fig_w, 0.5 + 0.4 * len(df)))
-    ax.axis("off")
-    table = ax.table(
-        cellText=cell_text, colLabels=header, colWidths=col_widths, loc="center", cellLoc="center"
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(8.5)
-    table.scale(1, 1.5)
-    for j in range(len(header)):
-        table[0, j].set_facecolor("#e1e0d9")
-        table[0, j].set_text_props(fontweight="bold")
-    for i, (_, row) in enumerate(df.iterrows(), start=1):
-        table[i, 0].set_facecolor(config_color(row["config"]))
-    ax.set_title(
-        "CV main table: validation-fold AUROC (mean +/- std) and best fold",
-        fontsize=11,
-        pad=20,
-    )
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
 
 
 def process_experiment(
@@ -354,117 +82,24 @@ def process_experiment(
     with_val_specificity: bool = True,
 ) -> None:
     output_dir = Path(output_dir)
-    artifact_misses: list[str] = []
-    crosscheck_failures: list[str] = []
-
     client = MlflowClient()
-    exp = client.get_experiment_by_name(experiment_name)
-    if exp is None:
-        print(f"Experiment '{experiment_name}' not found.")
-        return
 
-    print(f"Loading CV runs for {len(MODEL_REGISTRY)} configuration(s)...")
-    configs = _load_configs(client, exp.experiment_id)
-    if not configs:
+    print("Loading CV runs...")
+    runs = load_cv_runs(client, experiment_name)
+    if not runs:
         print("No CV configurations could be loaded, aborting.")
         return
 
-    main_rows = []
-    fold_rows = []
-    for model_key, data in configs.items():
-        entry = get_model_entry(model_key)
-        parent = data["parent"]
-        row = {
-            "config": model_key,
-            "architecture": entry.architecture,
-            "pretrain_data": entry.pretrain_data,
-            "pretrain_method": entry.pretrain_method,
-            "n_folds": len(data["children"]),
-        }
-        for m in _VAL_METRICS:
-            row[f"val_{m}_mean"] = round(_parent_metric(parent, f"cv_mean_val_{m}"), 4)
-            row[f"val_{m}_std"] = round(_parent_metric(parent, f"cv_std_val_{m}"), 4)
-        row["threshold_mean"] = round(_parent_metric(parent, "cv_mean_threshold"), 4)
-        row["threshold_std"] = round(_parent_metric(parent, "cv_std_threshold"), 4)
-        row["threshold_min"] = round(_parent_metric(parent, "cv_min_threshold"), 4)
-        row["threshold_max"] = round(_parent_metric(parent, "cv_max_threshold"), 4)
-
-        best_fold_raw = _parent_param(parent, "best_fold")
-        row["best_fold"] = int(best_fold_raw) + 1 if best_fold_raw is not None else None
-        best_fold_auroc = _parent_param(parent, "best_fold_val_auroc")
-        row["best_fold_val_auroc"] = (
-            round(float(best_fold_auroc), 4) if best_fold_auroc else float("nan")
-        )
-        best_fold_thr = _parent_param(parent, "best_fold_threshold")
-        row["best_fold_threshold"] = (
-            round(float(best_fold_thr), 4) if best_fold_thr else float("nan")
-        )
-        main_rows.append(row)
-
-        for child in data["children"]:
-            fold_idx = int(child.data.params.get("fold", -1))
-            fold_row = {
-                "config": model_key,
-                "architecture": entry.architecture,
-                "fold": fold_idx + 1,
-                "val_auroc": child.data.metrics.get("fold_val_auroc"),
-                "val_f1": child.data.metrics.get("fold_val_f1"),
-                "val_precision": child.data.metrics.get("fold_val_precision"),
-                "val_recall": child.data.metrics.get("fold_val_recall"),
-                "optimal_threshold": child.data.metrics.get("fold_optimal_threshold"),
-            }
-
-            fold_row["val_sensitivity"] = child.data.metrics.get("fold_val_recall")
-            fold_row["val_specificity"] = None
-            if with_val_specificity:
-                recomputed = _val_fold_metrics_from_artifacts(child, fold_idx)
-                if recomputed is None:
-                    artifact_misses.append(f"{model_key} fold {fold_idx + 1}")
-                else:
-                    fold_row["val_sensitivity"] = recomputed["sensitivity"]
-                    fold_row["val_specificity"] = recomputed["specificity"]
-                    for msg in recomputed["_mismatch"]:
-                        crosscheck_failures.append(f"{model_key} fold {fold_idx + 1}: {msg}")
-            for level, key_template in _HELDOUT_LEVELS.items():
-                for m in _REPORT_METRICS:
-                    fold_row[f"heldout_{level}_{m}"] = child.data.metrics.get(
-                        key_template.format(metric=m)
-                    )
-            fold_rows.append(fold_row)
-
-    main_df = pd.DataFrame(main_rows)
-    fold_df = pd.DataFrame(fold_rows)
-
+    main_df = tables.main_table(runs)
+    fold_df, diagnostics = tables.per_fold_table(runs, with_val_specificity)
     if with_val_specificity:
-        if artifact_misses:
-            print(
-                f"\n  [warn] {len(artifact_misses)} fold(s) had no readable val "
-                f"probability artifact, excluded from val specificity: "
-                f"{', '.join(artifact_misses)}"
-            )
-        if crosscheck_failures:
-            print(
-                f"\n  [ERROR] {len(crosscheck_failures)} fold(s) where recomputed "
-                f"metrics disagree with the logged ones -- their specificity is "
-                f"NOT trustworthy:"
-            )
-            for msg in crosscheck_failures:
-                print(f"    - {msg}")
-        else:
-            n_ok = int(fold_df["val_specificity"].notna().sum())
-            print(
-                f"\n  Val specificity recomputed for {n_ok}/{len(fold_df)} folds "
-                f"(cv_per_fold_val_metrics.csv); recomputed sensitivity/F1/AUROC "
-                f"match the logged values on all of them."
-            )
+        _report_diagnostics(fold_df, diagnostics)
 
     print(f"\nMain table: {len(main_df)} configs, per-fold table: {len(fold_df)} rows.")
     print(main_df.to_string(index=False))
 
-    # Friedman + Wilcoxon on validation-fold AUROC, the threshold-free metric
-    # (see module docstring).
+    # Friedman + Wilcoxon on validation-fold AUROC, the threshold-free metric.
     fold_auroc_wide = fold_df.pivot(index="config", columns="fold", values="val_auroc")
-
     friedman_stat, friedman_p = run_friedman(fold_auroc_wide.T)
     wilcoxon_p = run_wilcoxon_matrix(fold_auroc_wide)
     print(f"\nFriedman (CV val AUROC): chi2={friedman_stat:.4f}  p={friedman_p:.4f}")
@@ -474,15 +109,13 @@ def process_experiment(
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    main_df.to_csv(output_dir / "cv_main_table.csv", index=False)
-    (output_dir / "cv_main_table.md").write_text(to_markdown(main_df))
+    write_table(main_df, output_dir / "cv_main_table")
     fold_df.to_csv(output_dir / "cv_per_fold_val_metrics.csv", index=False)
     wilcoxon_p.to_csv(output_dir / "wilcoxon_pmatrix_cv.csv")
 
     keys = main_df["config"].tolist()
-    _plot_main_table(main_df, output_dir / "cv_main_table.png")
-    _plot_auroc_legend_bar(
+    plots.plot_main_table(main_df, output_dir / "cv_main_table.png")
+    plots.plot_auroc_legend_bar(
         keys,
         main_df["val_auroc_mean"].tolist(),
         main_df["val_auroc_std"].tolist(),
@@ -491,7 +124,7 @@ def process_experiment(
         ref_line=0.5,
         ref_label="0.5 (chance)",
     )
-    _plot_model_bar(
+    plots.plot_model_bar(
         keys,
         main_df["threshold_mean"].tolist(),
         main_df["threshold_std"].tolist(),
@@ -502,17 +135,11 @@ def process_experiment(
         ref_label="0.5 (default)",
     )
 
-    matrix_df = fold_auroc_wide.copy()
-    matrix_df.columns = [f"fold_{c}" for c in matrix_df.columns]
-    matrix_df["Mean"] = fold_auroc_wide.mean(axis=1)
-    matrix_df["Std"] = fold_auroc_wide.std(axis=1, ddof=1)
-    # fold_auroc_wide.pivot() sorted the index alphabetically; reindex to
-    # architecture/MODEL_REGISTRY order (main_df's order) for the CSV and
-    # figure -- this is a display reordering of a COPY, fold_auroc_wide
-    # itself (feeding Friedman/Wilcoxon/wilcoxon_pmatrix_cv.csv below) is untouched.
-    matrix_df = matrix_df.reindex(keys)
+    # pivot() sorted configs alphabetically; the matrix is re-ordered for display
+    # only, Friedman/Wilcoxon above use fold_auroc_wide as is.
+    matrix_df = tables.fold_auroc_matrix(fold_auroc_wide, keys)
     matrix_df.to_csv(output_dir / "cv_fold_auroc_matrix.csv")
-    _plot_fold_matrix(matrix_df, output_dir / "cv_fold_auroc_matrix.png")
+    plots.plot_fold_matrix(matrix_df, output_dir / "cv_fold_auroc_matrix.png")
 
     plot_friedman_ranks(
         fold_auroc_wide.T,

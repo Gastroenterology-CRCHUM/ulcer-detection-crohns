@@ -1,18 +1,23 @@
 """
-Post-hoc computation of clip-level heldout metrics for all CV runs.
+scripts/ulcer/log_heldout_clip_metrics.py
+-----------------------------------------
+Post-hoc clip-level held-out metrics for every CV fold, logged back to MLflow.
 
-For each parent run in the experiment, loads per-fold heldout frame predictions
-from child runs, aggregates by clip (mean probability), applies the per-fold
-clip threshold, and logs the resulting metrics back to MLflow:
+For each CV parent run, loads each fold's held-out frame predictions, averages
+them per clip, applies that fold's clip threshold, and logs:
 
-  Child run  → heldout_clip__{metric}_mean   (per-fold clip metrics)
-  Parent run → cv_mean_heldout_clip_{metric}  (mean across folds)
-               cv_std_heldout_clip_{metric}   (std  across folds)
+  Child run  -> heldout_clip__{metric}_mean   (per-fold clip metrics)
+  Parent run -> cv_mean_heldout_clip_{metric}  (mean across folds)
+                cv_std_heldout_clip_{metric}   (std  across folds)
+
+All held-out frames are used (no informative-frame filter), as in the values
+already logged; the filtered analysis is effect_decomposition.py.
 
 Usage
 -----
-    python scripts/ulcer/log_heldout_clip_metrics.py
-    python scripts/ulcer/log_heldout_clip_metrics.py --experiment ulcer_detection --dry-run
+    python -m scripts.ulcer.log_heldout_clip_metrics
+    python -m scripts.ulcer.log_heldout_clip_metrics --dry-run
+    python -m scripts.ulcer.log_heldout_clip_metrics --force
 """
 
 from __future__ import annotations
@@ -26,160 +31,66 @@ warnings.filterwarnings("ignore")
 os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ".")
 
-import numpy as np
-import pandas as pd
-import mlflow
-from mlflow import MlflowClient
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
+import mlflow  # noqa: E402
+import numpy as np  # noqa: E402
+from mlflow import MlflowClient  # noqa: E402
 
-from src.config.paths import get_default_paths
-from src.evaluation.mlflow_io import download_npy
+from src.config.paths import get_default_paths  # noqa: E402
+from src.evaluation.heldout import aggregate_to_clip, load_cohort, point_metrics  # noqa: E402
+from src.evaluation.mlflow_io import artifact_paths, download_npy, load_cv_runs  # noqa: E402
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _clip_metrics(
-    probs: np.ndarray,
-    clip_keys: np.ndarray,
-    clip_label_map: dict[str, int],
-    threshold: float,
-) -> dict[str, float]:
-    """Aggregate frame probs by clip and compute classification metrics."""
-    df = pd.DataFrame({"clip_key": clip_keys, "prob": probs})
-    clip_df = df.groupby("clip_key", sort=False)["prob"].mean().reset_index()
-    clip_df["label"] = clip_df["clip_key"].map(clip_label_map)
-    clip_df = clip_df.dropna(subset=["label"])
-    clip_df["label"] = clip_df["label"].astype(int)
-
-    y = clip_df["label"].values
-    p = clip_df["prob"].values
-    preds = (p >= threshold).astype(int)
-
-    tn = int(((y == 0) & (preds == 0)).sum())
-    fp = int(((y == 0) & (preds == 1)).sum())
-    spec = tn / (tn + fp) if (tn + fp) > 0 else float("nan")
-
-    return {
-        "auroc": roc_auc_score(y, p) if len(np.unique(y)) > 1 else float("nan"),
-        "accuracy": accuracy_score(y, preds),
-        "f1": f1_score(y, preds, zero_division=0),
-        "precision": precision_score(y, preds, zero_division=0),
-        "sensitivity": recall_score(y, preds, zero_division=0),
-        "specificity": spec,
-        "n_clips": len(clip_df),
-    }
-
-
-def _find_heldout_probs_path(client: MlflowClient, run_id: str) -> str | None:
-    """Return the artifact path of the per-fold heldout probs npy."""
-    try:
-        arts = client.list_artifacts(run_id, "predictions/heldout")
-        for a in arts:
-            if "probs" in a.path:
-                return a.path
-    except Exception:
-        pass
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+FOLD_METRICS = ("auroc", "accuracy", "f1", "precision", "sensitivity", "specificity")
 
 
 def process_experiment(
-    experiment_name: str,
-    manifest_path: str,
-    dry_run: bool = False,
+    experiment_name: str, manifest_path: str, dry_run: bool = False, force: bool = False
 ) -> None:
     client = MlflowClient()
-    exp = client.get_experiment_by_name(experiment_name)
-    if exp is None:
-        print(f"Experiment '{experiment_name}' not found.")
-        return
+    cohort = load_cohort(manifest_path)
+    runs = load_cv_runs(client, experiment_name)
+    print(f"Found {len(runs)} CV parent run(s) in '{experiment_name}'.")
 
-    # Load heldout manifest once
-    df_hm = pd.read_csv(manifest_path)
-    clip_keys = df_hm["clip_key"].values
-    clip_label_map: dict[str, int] = (
-        df_hm.groupby("clip_key")["label"].apply(lambda x: int(x.mode()[0])).to_dict()
-    )
-
-    # Fetch all runs
-    all_runs = client.search_runs(
-        experiment_ids=[exp.experiment_id],
-        max_results=1000,
-    )
-    parents = [r for r in all_runs if not r.data.tags.get("mlflow.parentRunId")]
-    print(f"Found {len(parents)} parent run(s) in '{experiment_name}'.")
-
-    for parent in parents:
-        model_name = parent.data.tags.get("model", parent.info.run_id[:8])
-        parent_id = parent.info.run_id
-        children = [r for r in all_runs if r.data.tags.get("mlflow.parentRunId") == parent_id]
-
-        if not children:
-            print(f"  {model_name}: no child runs, skip.")
-            continue
-
-        # Check if already logged
-        existing = {k for k in parent.data.metrics if "heldout_clip" in k}
-        if existing:
+    for model_key, (parent, children) in runs.items():
+        if not force and "cv_mean_heldout_clip_auroc" in parent.data.metrics:
             print(
-                f"  {model_name}: clip heldout metrics already present, skip "
+                f"  {model_key}: clip heldout metrics already present, skip "
                 f"(use --force to overwrite)."
             )
             continue
 
-        print(f"  {model_name}: processing {len(children)} fold(s)...")
-        fold_metrics: dict[str, list[float]] = {
-            k: [] for k in ("auroc", "accuracy", "f1", "precision", "sensitivity", "specificity")
-        }
-
-        for ch in children:
-            fold_name = ch.data.tags.get("mlflow.runName", ch.info.run_id[:8])
-            clip_thresh = ch.data.metrics.get("fold_optimal_clip_threshold", 0.5)
-            probs_path = _find_heldout_probs_path(client, ch.info.run_id)
+        print(f"  {model_key}: processing {len(children)} fold(s)...")
+        fold_values: dict[str, list[float]] = {k: [] for k in FOLD_METRICS}
+        for child in children:
+            name = child.data.tags.get("mlflow.runName", child.info.run_id[:8])
+            paths = artifact_paths(client, child.info.run_id, "predictions/heldout")
+            probs_path = next((p for p in paths if "probs" in p), None)
             if probs_path is None:
-                print(f"    {fold_name}: no heldout probs artifact, skip.")
+                print(f"    {name}: no heldout probs artifact, skip.")
                 continue
 
-            probs = download_npy(client, ch.info.run_id, probs_path)
-            m = _clip_metrics(probs, clip_keys, clip_label_map, clip_thresh)
-
+            probs = download_npy(client, child.info.run_id, probs_path)
+            clip_probs = aggregate_to_clip(probs, cohort.frame_clip_keys, cohort.clip_order)
+            threshold = child.data.metrics.get("fold_optimal_clip_threshold", 0.5)
+            m = point_metrics(cohort.clip_labels, clip_probs, threshold)
+            n_clips = len(cohort.clip_order)
             print(
-                f"    {fold_name}: AUROC={m['auroc']:.3f}  F1={m['f1']:.3f}  "
-                f"Sens={m['sensitivity']:.3f}  Spec={m['specificity']:.3f}  "
-                f"n_clips={m['n_clips']}"
+                f"    {name}: AUROC={m['auroc']:.3f}  F1={m['f1']:.3f}  "
+                f"Sens={m['sensitivity']:.3f}  Spec={m['specificity']:.3f}  n_clips={n_clips}"
             )
 
             if not dry_run:
-                with mlflow.start_run(run_id=ch.info.run_id):
+                with mlflow.start_run(run_id=child.info.run_id):
                     mlflow.log_metrics(
-                        {
-                            f"heldout_clip__{k}_mean": v
-                            for k, v in m.items()
-                            if k != "n_clips" and not np.isnan(v)
-                        }
+                        {f"heldout_clip__{k}_mean": v for k, v in m.items() if not np.isnan(v)}
                     )
-                    mlflow.log_metric("heldout_clip_n_clips", m["n_clips"])
+                    mlflow.log_metric("heldout_clip_n_clips", n_clips)
 
-            for k in fold_metrics:
+            for k in FOLD_METRICS:
                 if not np.isnan(m[k]):
-                    fold_metrics[k].append(m[k])
+                    fold_values[k].append(m[k])
 
-        # Aggregate across folds and log to parent
         parent_log: dict[str, float] = {}
-        for k, vals in fold_metrics.items():
+        for k, vals in fold_values.items():
             if not vals:
                 continue
             arr = np.array(vals)
@@ -187,14 +98,13 @@ def process_experiment(
             parent_log[f"cv_std_heldout_clip_{k}"] = float(arr.std(ddof=1)) if len(arr) > 1 else 0.0
 
         print(
-            f"    → parent: AUROC {parent_log.get('cv_mean_heldout_clip_auroc', float('nan')):.3f} "
-            f"± {parent_log.get('cv_std_heldout_clip_auroc', 0):.3f}  "
-            f"F1 {parent_log.get('cv_mean_heldout_clip_f1', float('nan')):.3f} "
-            f"± {parent_log.get('cv_std_heldout_clip_f1', 0):.3f}"
+            f"    -> parent: AUROC {parent_log.get('cv_mean_heldout_clip_auroc', float('nan')):.3f}"
+            f" +/- {parent_log.get('cv_std_heldout_clip_auroc', 0):.3f}  "
+            f"F1 {parent_log.get('cv_mean_heldout_clip_f1', float('nan')):.3f}"
+            f" +/- {parent_log.get('cv_std_heldout_clip_f1', 0):.3f}"
         )
-
         if not dry_run and parent_log:
-            with mlflow.start_run(run_id=parent_id):
+            with mlflow.start_run(run_id=parent.info.run_id):
                 mlflow.log_metrics(parent_log)
 
     print("Done.")
@@ -205,27 +115,21 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument(
-        "--experiment",
-        default="ulcer_detection",
-        help="MLflow experiment name (default: ulcer_detection)",
-    )
+    p.add_argument("--experiment", default="ulcer_detection", help="MLflow experiment name")
+    p.add_argument("--mlflow-uri", default=cfg.mlflow_db)
     p.add_argument(
         "--manifest",
         default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"),
-        help="Path to heldout temporal manifest CSV",
+        help="Held-out temporal manifest CSV",
     )
-    p.add_argument(
-        "--dry-run", action="store_true", help="Compute metrics but do not log to MLflow"
-    )
-    p.add_argument(
-        "--force", action="store_true", help="Re-log even if clip heldout metrics already present"
-    )
+    p.add_argument("--dry-run", action="store_true", help="Compute but do not log to MLflow")
+    p.add_argument("--force", action="store_true", help="Re-log even if already present")
     return p
 
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
+    mlflow.set_tracking_uri(args.mlflow_uri)
     if args.dry_run:
         print("[DRY RUN] metrics will be computed but not logged.")
-    process_experiment(args.experiment, args.manifest, dry_run=args.dry_run)
+    process_experiment(args.experiment, args.manifest, dry_run=args.dry_run, force=args.force)

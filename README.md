@@ -46,6 +46,7 @@ Nine model configurations were evaluated by combining four architectures (ResNet
 │   └── ulcer/
 │       ├── cv/                            CV validation-fold figures and tables (Figures 1–3, Tables 1–2)
 │       ├── heldout/                       Held-out ensemble evaluation + effect decomposition figures/tables
+│       ├── paper/                         Manuscript tables (Table 1, Table S1, quoted ΔAUROC)
 │       └── eda/                           Dataset EDA figures
 ├── data/
 │   └── ulcer/
@@ -255,16 +256,26 @@ Also accepted per run, falling back to `configs/example.yaml`'s defaults when om
 
 ## Post-hoc Evaluation
 
+All result scripts read the CV runs from `mlflow.db` (`--mlflow-uri` to change it) and
+take the one CV parent run per model with its 5 fold runs. Run them from the repo root
+with the environment whose MLflow version matches the database schema.
+
 ### Clip-level metrics (all CV folds)
+
+Logs per-fold clip metrics on the fold runs and their mean/std on the parent run.
+Uses every held-out frame (no informative-frame filter), like the values already
+logged. Skips models already logged unless `--force`.
 
 ```bash
 python -m scripts.ulcer.log_heldout_clip_metrics
+python -m scripts.ulcer.log_heldout_clip_metrics --dry-run
 ```
 
 ### Clip-level CI (best fold)
 
 ```bash
 python -m scripts.ulcer.log_heldout_clip_best_fold
+python -m scripts.ulcer.log_heldout_clip_best_fold --dry-run
 ```
 
 ### CV validation-fold report
@@ -277,10 +288,8 @@ Wilcoxon comparison on validation AUROC. AUROC is the only metric featured on
 this validation-fold side (see the module docstring): sensitivity/specificity/F1
 are evaluated at a threshold tuned by maximizing on that same fold, so they are
 not a fair cross-model comparison there -- they are still recomputed and kept in
-`cv_per_fold_val_metrics.csv` as diagnostic detail. Also writes the held-out
-per-fold metrics (all 4 metrics, both frame and clip level -- fair there, since
-the threshold is fixed from CV and only applied, not tuned, on that cohort)
-into `results/ulcer/heldout/`.
+`cv_per_fold_val_metrics.csv` as diagnostic detail, next to the held-out per-fold
+metrics logged on each fold run (unfiltered, see above).
 
 ```bash
 python -m scripts.ulcer.cv_results
@@ -303,7 +312,9 @@ matrix alike. Decomposes the pretraining method effect (Supervised -> DINOv1)
 and corpus effect (ImageNet -> GastroNet-5M) across those 5 pairs, with the
 patient-clustered bootstrap Delta-AUROC CI as the primary uncertainty statement
 and ensemble/best-fold DeLong (Holm-Bonferroni-corrected) kept alongside for
-traceability.
+traceability. Non-informative frames are excluded by default
+(`--no-filter-informative` to keep them). Also writes the manuscript tables to
+`results/ulcer/paper/`.
 
 ```bash
 python -m scripts.ulcer.effect_decomposition

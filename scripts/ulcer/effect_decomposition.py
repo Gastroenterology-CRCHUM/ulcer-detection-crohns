@@ -1,1244 +1,233 @@
 """
 scripts/ulcer/effect_decomposition.py
 --------------------------------------
-Heldout-cohort 5-fold ensemble evaluation and pretraining effect decomposition.
+Held-out 5-fold ensemble evaluation and pretraining effect decomposition.
 
-For each of the 9 trained model configurations, averages the 5 CV folds'
-already-logged heldout frame probabilities (no retraining, no re-inference)
-into a single ensemble prediction per config, aggregates to clip level, and:
+For each of the 9 configurations, averages the 5 CV fold models' logged
+held-out frame probabilities (no retraining, no re-inference) into an ensemble,
+aggregates frames to clips (mean probability), and reports:
 
-  1. Reports each config's ensemble AUROC (and 5 other metrics) with a
-     patient-clustered, BCa-adjusted 95% bootstrap CI (resampling the 19
-     heldout patients (BCa, not the plain percentile method, since these
-     metrics are not symmetrically distributed)) at frame and clip level.
-  2. Decomposes two pretraining effects across 5 architecture-matched pairs:
+  1. Ensemble metrics, frame and clip level, with a patient-clustered 95% BCa
+     bootstrap CI (19 held-out patients resampled; BCa because these metrics
+     are not symmetrically distributed).
+  2. Two pretraining effects over 5 architecture-matched pairs:
        method effect (Supervised -> DINOv1, ImageNet held constant)
        corpus effect (ImageNet -> GastroNet-5M, DINOv1 held constant)
-     reporting, per pair: the plug-in ensemble DeltaAUROC with a patient-
-     clustered BCa bootstrap CI (primary uncertainty statement) alongside
-     ensemble DeLong and best-fold DeLong (both clip-level, non-clustered,
-     kept for traceability against the clustered result).
-  3. Reports a full 9x9 pairwise patient-clustered bootstrap matrix (BCa).
+     Primary: ensemble DeltaAUROC with its clustered BCa CI. Ensemble and
+     best-fold DeLong (clip level, not clustered) are kept for traceability.
+  3. The full pairwise bootstrap matrix (exploratory, uncorrected).
+  4. A Friedman test on per-patient clip mean absolute error.
+  5. The manuscript tables (results/ulcer/paper/).
+
+Non-informative frames are excluded by default, as for training and CV data
+(data/ulcer/heldout/informative_mask.csv); --no-filter-informative keeps them.
 
 Usage
 -----
-    python scripts/ulcer/effect_decomposition.py
-    python scripts/ulcer/effect_decomposition.py --dry-run
-    python scripts/ulcer/effect_decomposition.py --n-bootstrap 20000 --seed 7
+    python -m scripts.ulcer.effect_decomposition
+    python -m scripts.ulcer.effect_decomposition --dry-run
+    python -m scripts.ulcer.effect_decomposition --n-bootstrap 20000 --seed 7
 """
 
 from __future__ import annotations
 
 import argparse
-import itertools
 import os
 import sys
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ".")
 
-import matplotlib
+import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
-import mlflow
-import numpy as np
-import pandas as pd
-from mlflow import MlflowClient
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-    roc_curve,
-)
+import matplotlib.pyplot as plt  # noqa: E402
+import mlflow  # noqa: E402
+import numpy as np  # noqa: E402
+from mlflow import MlflowClient  # noqa: E402
 
-from src.config.models import MODEL_REGISTRY, get_model_entry
-from src.config.paths import get_default_paths
-from src.evaluation.delong import delong_test
-from src.evaluation.metrics import patient_clustered_bootstrap
-from src.evaluation.mlflow_io import download_npy
-from src.evaluation.plots import plot_roc_curves
-from src.evaluation.rank_tests import (
-    holm_bonferroni,
-    plot_friedman_ranks,
-    run_friedman,
+from src.config.paths import get_default_paths  # noqa: E402
+from src.evaluation import heldout_plots as plots  # noqa: E402
+from src.evaluation import heldout_tables as tables  # noqa: E402
+from src.evaluation.heldout import (  # noqa: E402
+    load_cohort,
+    load_informative_mask,
+    load_predictions,
 )
-from src.evaluation.reporting import to_markdown
-from src.evaluation.style import (
-    STATUS_NEUTRAL,
-    STATUS_NOT_SIGNIFICANT,
-    STATUS_SIGNIFICANT,
-    config_color,
-    config_label,
-    config_labels,
-    metric_label,
-    slug,
-)
+from src.evaluation.mlflow_io import load_cv_runs  # noqa: E402
+from src.evaluation.rank_tests import plot_friedman_ranks, run_friedman  # noqa: E402
+from src.evaluation.reporting import write_table  # noqa: E402
+from src.evaluation.style import slug  # noqa: E402
 
 plt.style.use("seaborn-v0_8-whitegrid")
-
-
-PAIRS: list[dict] = [
-    {
-        "pair_id": "method_resnet50",
-        "effect": "method",
-        "architecture": "ResNet-50",
-        "config_a": "resnet50_imagenet_sup",
-        "config_b": "resnet50_imagenet",
-    },
-    {
-        "pair_id": "method_vitb16",
-        "effect": "method",
-        "architecture": "ViT-Base/16",
-        "config_a": "vitb16_imagenet_sup",
-        "config_b": "vitb16_imagenet",
-    },
-    {
-        "pair_id": "method_vits16",
-        "effect": "method",
-        "architecture": "ViT-Small/16",
-        "config_a": "vits16_imagenet_hf",
-        "config_b": "vits16_imagenet",
-    },
-    {
-        "pair_id": "corpus_resnet50",
-        "effect": "corpus",
-        "architecture": "ResNet-50",
-        "config_a": "resnet50_imagenet",
-        "config_b": "resnet50_gastronet",
-    },
-    {
-        "pair_id": "corpus_vits16",
-        "effect": "corpus",
-        "architecture": "ViT-Small/16",
-        "config_a": "vits16_imagenet",
-        "config_b": "vits16_gastronet",
-    },
-]
-
-
-def _aggregate_to_clip(
-    frame_probs: np.ndarray, clip_keys: np.ndarray, clip_order: list
-) -> np.ndarray:
-    """Mean-aggregate frame probabilities to clip level, in a fixed clip order."""
-    df = pd.DataFrame({"clip_key": clip_keys, "prob": frame_probs})
-    clip_means = df.groupby("clip_key", sort=False)["prob"].mean()
-    return clip_means.reindex(clip_order).to_numpy()
-
-
-def _clip_point_metrics(clip_probs: np.ndarray, clip_labels: np.ndarray, threshold: float) -> dict:
-    """Point (non-bootstrapped) clip-level metrics at a fixed threshold."""
-    preds = (clip_probs >= threshold).astype(int)
-    tn, fp, _, _ = confusion_matrix(clip_labels, preds, labels=[0, 1]).ravel()
-    spec = tn / (tn + fp) if (tn + fp) > 0 else float("nan")
-    auroc = (
-        roc_auc_score(clip_labels, clip_probs) if len(np.unique(clip_labels)) > 1 else float("nan")
-    )
-    return {
-        "auroc": auroc,
-        "accuracy": accuracy_score(clip_labels, preds),
-        "f1": f1_score(clip_labels, preds, zero_division=0),
-        "precision": precision_score(clip_labels, preds, zero_division=0),
-        "sensitivity": recall_score(clip_labels, preds, zero_division=0),
-        "specificity": spec,
-    }
-
-
-_METRIC_ORDER = ("auroc", "f1", "precision", "sensitivity", "specificity", "accuracy")
-
-
-def _make_metric_bootstrap_fn(
-    metric_name: str, labels: np.ndarray, probs: np.ndarray, threshold: float
-):
-    """statistic_fn factory for patient_clustered_bootstrap. Level-agnostic --
-    the caller passes clip-level or frame-level (labels, probs) and the same
-    logic applies, since patient_clustered_bootstrap only cares that
-    `labels`/the array `probs`/`preds` line up one-to-one with `patient_ids`.
-
-    AUROC is threshold-free (probability-based). Every other metric is
-    evaluated at the fixed `threshold` (the same one used for the point
-    estimate, e.g. cv_mean_clip_threshold), not re-optimized per bootstrap
-    resample, so the CI reflects sampling variability of the patient cohort
-    alone, not threshold instability.
-    """
-    preds = (probs >= threshold).astype(int)
-    if metric_name == "auroc":
-        return lambda w: float(roc_auc_score(labels, probs, sample_weight=w))
-    if metric_name == "f1":
-        return lambda w: float(f1_score(labels, preds, sample_weight=w, zero_division=0))
-    if metric_name == "precision":
-        return lambda w: float(precision_score(labels, preds, sample_weight=w, zero_division=0))
-    if metric_name == "sensitivity":
-        return lambda w: float(recall_score(labels, preds, sample_weight=w, zero_division=0))
-    if metric_name == "accuracy":
-        return lambda w: float(accuracy_score(labels, preds, sample_weight=w))
-    if metric_name == "specificity":
-
-        def _specificity_fn(w):
-            tn, fp, _, _ = confusion_matrix(labels, preds, labels=[0, 1], sample_weight=w).ravel()
-            return float(tn / (tn + fp)) if (tn + fp) > 0 else float("nan")
-
-        return _specificity_fn
-    raise ValueError(f"Unknown metric: {metric_name}")
-
-
-def _load_config(
-    client: MlflowClient,
-    parent,
-    children: list,
-    clip_order: list,
-    clip_keys_frame: np.ndarray,
-    clip_labels: np.ndarray,
-    manifest_frame_labels: np.ndarray,
-    frame_mask: np.ndarray | None = None,
-) -> dict | None:
-    """Download and aggregate one config's heldout predictions.
-
-    Returns None (with a printed warning) if any expected artifact is
-    missing or malformed, so the caller can skip that config.
-
-    Clip aggregation assumes each fold's `heldout_probs_fold{k}.npy` is in
-    the SAME row order as the heldout manifest (so `probs[i]` corresponds to
-    `clip_keys_frame[i]`), this is verified per fold against that fold's
-    own `heldout_labels_fold{k}.npy` sibling artifact rather than assumed.
-    """
-    fold_frame_probs, fold_thresholds, fold_frame_thresholds = [], [], []
-    for ch in children:
-        fold_name = ch.data.tags.get("mlflow.runName", ch.info.run_id[:8])
-        arts = []
-        try:
-            arts = [a.path for a in client.list_artifacts(ch.info.run_id, "predictions/heldout")]
-        except Exception:
-            pass
-        probs_paths = [a for a in arts if "probs" in a]
-        labels_paths = [a for a in arts if "labels" in a]
-        if not probs_paths or not labels_paths:
-            print(
-                f"    [warn] {fold_name}: missing heldout probs/labels artifact, skipping config."
-            )
-            return None
-        probs = download_npy(client, ch.info.run_id, probs_paths[0])
-        fold_labels = download_npy(client, ch.info.run_id, labels_paths[0])
-        if len(probs) != len(clip_keys_frame) or len(fold_labels) != len(clip_keys_frame):
-            print(
-                f"    [warn] {fold_name}: {len(probs)} probs / {len(fold_labels)} labels, expected "
-                f"{len(clip_keys_frame)}, skipping config."
-            )
-            return None
-        if not np.array_equal(fold_labels, manifest_frame_labels):
-            print(
-                f"    [warn] {fold_name}: heldout labels do not match the manifest row order "
-                f"(frame/clip alignment would be wrong), skipping config."
-            )
-            return None
-        fold_frame_probs.append(probs)
-        fold_thresholds.append(float(ch.data.metrics.get("fold_optimal_clip_threshold", 0.5)))
-        fold_frame_thresholds.append(float(ch.data.metrics.get("fold_optimal_threshold", 0.5)))
-
-    # Validate the best-fold artifact against the FULL (unfiltered) manifest
-    # structure, it is stored frame-indexed against the full manifest, same
-    # as every other artifact above, before the informative-frame filter
-    # (applied below) reassigns `manifest_frame_labels` to the filtered subset.
-    try:
-        best_fold_frame_probs = download_npy(
-            client, parent.info.run_id, "predictions/heldout_best_fold_probs.npy"
-        )
-        best_fold_frame_labels = download_npy(
-            client, parent.info.run_id, "predictions/heldout_best_fold_labels.npy"
-        )
-        if len(best_fold_frame_probs) != len(clip_keys_frame) or not np.array_equal(
-            best_fold_frame_labels, manifest_frame_labels
-        ):
-            raise ValueError("best-fold heldout artifact shape/order mismatch")
-        best_fold_frame_probs_valid = True
-    except Exception as exc:
-        print(
-            f"    [warn] best-fold heldout probs unavailable ({exc}), using ensemble as fallback."
-        )
-        best_fold_frame_probs_valid = False
-
-    # From here on, apply the informative-frame filter (a no-op boolean
-    # all-True mask when filtering is off)
-    if frame_mask is None:
-        frame_mask = np.ones(len(clip_keys_frame), dtype=bool)
-    fold_frame_probs = [p[frame_mask] for p in fold_frame_probs]
-    clip_keys_frame = clip_keys_frame[frame_mask]
-    manifest_frame_labels = manifest_frame_labels[frame_mask]
-
-    fold_clip_probs = [_aggregate_to_clip(p, clip_keys_frame, clip_order) for p in fold_frame_probs]
-    fold_metrics = [
-        _clip_point_metrics(cp, clip_labels, thr)
-        for cp, thr in zip(fold_clip_probs, fold_thresholds)
-    ]
-    fold_metrics_frame = [
-        _clip_point_metrics(p, manifest_frame_labels, thr)
-        for p, thr in zip(fold_frame_probs, fold_frame_thresholds)
-    ]
-
-    ensemble_frame_probs = np.mean(np.stack(fold_frame_probs, axis=0), axis=0)
-    ensemble_clip_probs = _aggregate_to_clip(ensemble_frame_probs, clip_keys_frame, clip_order)
-
-    if best_fold_frame_probs_valid:
-        best_fold_clip_probs = _aggregate_to_clip(
-            best_fold_frame_probs[frame_mask], clip_keys_frame, clip_order
-        )
-    else:
-        best_fold_clip_probs = ensemble_clip_probs
-
-    cv_mean_clip_threshold = float(parent.data.metrics.get("cv_mean_clip_threshold", 0.5))
-    cv_mean_threshold = float(parent.data.metrics.get("cv_mean_threshold", 0.5))
-
-    return {
-        "ensemble_frame_probs": ensemble_frame_probs,
-        "ensemble_clip_probs": ensemble_clip_probs,
-        "best_fold_clip_probs": best_fold_clip_probs,
-        "fold_clip_probs": fold_clip_probs,
-        "fold_metrics": fold_metrics,
-        "fold_metrics_frame": fold_metrics_frame,
-        "fold_thresholds": fold_thresholds,
-        "cv_mean_threshold": cv_mean_threshold,
-        "cv_mean_clip_threshold": cv_mean_clip_threshold,
-    }
-
-
-def _load_all_configs(
-    client: MlflowClient,
-    exp_id: str,
-    clip_order: list,
-    clip_keys_frame: np.ndarray,
-    clip_labels: np.ndarray,
-    manifest_frame_labels: np.ndarray,
-    frame_mask: np.ndarray | None = None,
-) -> dict:
-    """`clip_order`/`clip_labels` here are the (possibly informative-frame-
-    filtered) clip structure to aggregate onto; `clip_keys_frame`/
-    `manifest_frame_labels` must stay the RAW, unfiltered manifest structure
-    """
-    all_runs = client.search_runs(experiment_ids=[exp_id], max_results=1000)
-    parents_by_model = {
-        r.data.tags.get("model"): r for r in all_runs if not r.data.tags.get("mlflow.parentRunId")
-    }
-    children_by_parent: dict = {}
-    for r in all_runs:
-        pid = r.data.tags.get("mlflow.parentRunId")
-        if pid:
-            children_by_parent.setdefault(pid, []).append(r)
-
-    configs: dict = {}
-    for model_key in MODEL_REGISTRY:
-        parent = parents_by_model.get(model_key)
-        if parent is None:
-            print(f"  [warn] {model_key}: no parent run found, skipping.")
-            continue
-        children = sorted(
-            children_by_parent.get(parent.info.run_id, []),
-            key=lambda r: int(r.data.params.get("fold", -1)),
-        )
-        if not children:
-            print(f"  [warn] {model_key}: no child fold runs, skipping.")
-            continue
-
-        print(f"  {model_key}: loading {len(children)} fold(s)...")
-        data = _load_config(
-            client,
-            parent,
-            children,
-            clip_order,
-            clip_keys_frame,
-            clip_labels,
-            manifest_frame_labels,
-            frame_mask,
-        )
-        if data is not None:
-            configs[model_key] = data
-    return configs
-
-
-def _plot_forest(
-    pair_df: pd.DataFrame, ci_lo_col: str, ci_hi_col: str, title: str, output_path
-) -> None:
-    """One row per comparison pair. Point = plug-in ensemble DeltaAUROC (A - B), whiskers =
-    the bootstrap CI named by ci_lo_col/ci_hi_col. Color marks whether that CI excludes
-    zero (the primary significance call). DeLong significance (ensemble/best-fold, kept
-    for traceability, see module docstring) is reported separately in delong_pairs.png,
-    not annotated here."""
-    n = len(pair_df)
-    fig, ax = plt.subplots(figsize=(9.5, max(3.5, n * 1.1)))
-
-    labels = []
-    for i, row in enumerate(pair_df.itertuples()):
-        pt = row.delta_auroc_ensemble
-        lo, hi = getattr(row, ci_lo_col), getattr(row, ci_hi_col)
-        significant = lo > 0 or hi < 0
-        color = STATUS_SIGNIFICANT if significant else STATUS_NEUTRAL
-        ax.errorbar(
-            pt,
-            i,
-            xerr=[[max(pt - lo, 0.0)], [max(hi - pt, 0.0)]],
-            fmt="o",
-            color=color,
-            ecolor=color,
-            capsize=4,
-            markersize=8,
-            zorder=3,
-        )
-        labels.append(
-            f"{row.pair_id}\nA: {config_label(row.config_a)}\nB: {config_label(row.config_b)}"
-        )
-
-    ax.axvline(0, linestyle="--", color="#c3c2b7", linewidth=1)
-    ax.set_yticks(range(n))
-    ax.set_yticklabels(labels, fontsize=8)
-    ax.invert_yaxis()
-    ax.set_xlabel("DeltaAUROC  (A - B)")
-    ax.set_title(title)
-    legend_elems = [
-        mpatches.Patch(facecolor=STATUS_SIGNIFICANT, label="Bootstrap CI excludes 0 (significant)"),
-        mpatches.Patch(facecolor=STATUS_NEUTRAL, label="Bootstrap CI includes 0 (not significant)"),
-    ]
-    fig.tight_layout(rect=(0, 0.1, 1, 1))
-    ax.legend(
-        handles=legend_elems,
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.1),
-        ncol=1,
-        fontsize=8,
-        frameon=True,
-    )
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _plot_delong_pairs(pair_df: pd.DataFrame, output_path) -> None:
-    """Small grouped-bar panel, one row per comparison pair: DeLong z-statistic for the
-    ensemble prediction and for the best-fold prediction, side by side. Bar color marks
-    Holm-Bonferroni-adjusted significance. This is the traceability check that sits
-    alongside the primary bootstrap CI in effect_decomposition_bca.png, not a
-    replacement for it (see module docstring)."""
-    n = len(pair_df)
-    fig, ax = plt.subplots(figsize=(7, max(2.5, n * 0.9)))
-
-    y = np.arange(n)
-    height = 0.32
-    ens_z = pair_df["delong_ensemble_z"].to_numpy()
-    bf_z = pair_df["delong_bestfold_z"].to_numpy()
-    ens_sig = pair_df["delong_ensemble_p_holm"].to_numpy() < 0.05
-    bf_sig = pair_df["delong_bestfold_p_holm"].to_numpy() < 0.05
-
-    ax.barh(
-        y + height / 2, ens_z, height=height,
-        color=[STATUS_SIGNIFICANT if s else STATUS_NEUTRAL for s in ens_sig],
-        edgecolor="#0b0b0b", linewidth=0.5,
-    )
-    ax.barh(
-        y - height / 2, bf_z, height=height,
-        color=[STATUS_SIGNIFICANT if s else STATUS_NEUTRAL for s in bf_sig],
-        edgecolor="#0b0b0b", linewidth=0.5, hatch="//",
-    )
-    max_abs = max(np.abs(ens_z).max(), np.abs(bf_z).max(), 0.5)
-    pad = max_abs * 0.6 + 0.5
-    for yi, z, p in zip(y + height / 2, ens_z, pair_df["delong_ensemble_p_holm"]):
-        ax.text(
-            z + (0.08 if z >= 0 else -0.08), yi, f"p={p:.3f}", va="center",
-            ha="left" if z >= 0 else "right", fontsize=7,
-        )
-    for yi, z, p in zip(y - height / 2, bf_z, pair_df["delong_bestfold_p_holm"]):
-        ax.text(
-            z + (0.08 if z >= 0 else -0.08), yi, f"p={p:.3f}", va="center",
-            ha="left" if z >= 0 else "right", fontsize=7,
-        )
-
-    ax.axvline(0, color="#c3c2b7", linewidth=1, linestyle="--")
-    ax.set_xlim(-max_abs - pad, max_abs + pad)
-    ax.set_yticks(y)
-    ax.set_yticklabels(pair_df["pair_id"].tolist(), fontsize=8)
-    ax.invert_yaxis()
-    ax.set_xlabel("DeLong z-statistic (A - B)")
-    ax.set_title("DeLong test, ensemble vs. best-fold predictions (clip-level)", fontsize=10)
-
-    legend_elems = [
-        mpatches.Patch(facecolor="white", edgecolor="#0b0b0b", label="Ensemble"),
-        mpatches.Patch(facecolor="white", edgecolor="#0b0b0b", hatch="//", label="Best fold"),
-        mpatches.Patch(facecolor=STATUS_SIGNIFICANT, label="Holm-adjusted p < 0.05"),
-        mpatches.Patch(facecolor=STATUS_NEUTRAL, label="Holm-adjusted p >= 0.05"),
-    ]
-    ax.legend(
-        handles=legend_elems, loc="upper center", bbox_to_anchor=(0.5, -0.18),
-        ncol=2, fontsize=7.5, frameon=False,
-    )
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _draw_grouped_metrics(ax, names, metric_values: dict, ci_values=None, thresholds=None) -> None:
-    """Draw one grouped-metrics panel onto `ax`"""
-    metric_names = list(metric_values.keys())
-    n_models = len(names)
-    x = np.arange(len(metric_names))
-    width = 0.8 / n_models
-    for i, name in enumerate(names):
-        values = [metric_values[m][i] for m in metric_names]
-        yerr = None
-        if ci_values is not None:
-            lo_list, hi_list, has_any = [], [], False
-            for m in metric_names:
-                ci = ci_values.get(m, [None] * n_models)[i]
-                if ci is not None:
-                    has_any = True
-                    lo_list.append(max(metric_values[m][i] - ci[0], 0.0))
-                    hi_list.append(max(ci[1] - metric_values[m][i], 0.0))
-                else:
-                    lo_list.append(0.0)
-                    hi_list.append(0.0)
-            yerr = [lo_list, hi_list] if has_any else None
-        display_name = config_label(name)
-        label = display_name if thresholds is None else f"{display_name}  (thr={thresholds[name]:.2f})"
-        ax.bar(
-            x + i * width,
-            values,
-            width,
-            label=label,
-            color=config_color(name),
-            yerr=yerr,
-            capsize=3,
-        )
-    ax.set_xticks(x + width * (n_models - 1) / 2)
-    ax.set_xticklabels([metric_label(m) for m in metric_names], rotation=0)
-    ax.set_ylim(0, 1.05)
-
-
-def _plot_two_level_grouped_metrics(
-    names, frame_values: dict, frame_ci: dict, clip_values: dict, clip_ci: dict, title, output_path
-) -> None:
-    """Frame level on top, clip level on the bottom
-    Both panels carry a 95% BCa bootstrap CI"""
-    fig, axes = plt.subplots(
-        2, 1, figsize=(max(11, len(_METRIC_ORDER) * 2.2), 11.6), sharex=True, sharey=True
-    )
-    _draw_grouped_metrics(axes[0], names, frame_values, frame_ci)
-    axes[0].set_title("Frame level (95% BCa CI)", fontsize=11, fontweight="bold")
-    _draw_grouped_metrics(axes[1], names, clip_values, clip_ci)
-    axes[1].set_title(
-        "Clip level, mean-probability aggregation (95% BCa CI)", fontsize=11, fontweight="bold"
-    )
-    fig.suptitle(title, fontsize=12, fontweight="bold")
-    fig.tight_layout(rect=(0, 0.12, 1, 0.96))
-    axes[1].legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3, fontsize=8, frameon=True)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _plot_bootstrap_matrix(
-    p_matrix_boot: pd.DataFrame, bootstrap_matrix_df: pd.DataFrame, output_path
-) -> None:
-    """Full pairwise patient-clustered bootstrap matrix (95% BCa): heatmap
-    (upper triangle, green/pale-red = CI excludes/includes 0) + a summary
-    table sized to fit every pair
-    """
-    names = p_matrix_boot.index.tolist()  # RAW keys -- join key into bootstrap_matrix_df, do not map
-    labels = config_labels(names)  # display only, same order as names
-    n = len(names)
-    n_pairs = len(bootstrap_matrix_df)
-    max_name_len = max((len(s) for s in labels), default=8)
-    fig_width = max(14, 9 + max_name_len * 0.35)
-    fig_height = max(5, n * 0.5, 1.3 + n_pairs * 0.22)
-
-    fig, (ax_heat, ax_table) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
-
-    diag_gray = mcolors.to_rgba("#e1e0d9")
-    sig_color = mcolors.to_rgba(STATUS_SIGNIFICANT)
-    not_sig_color = mcolors.to_rgba(STATUS_NOT_SIGNIFICANT)
-    colors = np.ones((n, n, 4))
-    for i in range(n):
-        for j in range(n):
-            if i >= j or pd.isna(p_matrix_boot.iloc[i, j]):
-                colors[i, j] = diag_gray
-            else:
-                colors[i, j] = sig_color if p_matrix_boot.iloc[i, j] < 0.5 else not_sig_color
-    ax_heat.imshow(colors, aspect="auto")
-    for i in range(n):
-        for j in range(i + 1, n):
-            if pd.isna(p_matrix_boot.iloc[i, j]):
-                continue
-            row = bootstrap_matrix_df[
-                (bootstrap_matrix_df["config_a"] == names[i])
-                & (bootstrap_matrix_df["config_b"] == names[j])
-            ].iloc[0]
-            ax_heat.text(
-                j,
-                i,
-                f"{row['delta_auroc']:+.3f}",
-                ha="center",
-                va="center",
-                fontsize=8,
-                fontweight="bold" if row["significant"] else "normal",
-                color="#0b0b0b",
-            )
-        ax_heat.text(i, i, "-", ha="center", va="center", fontsize=10, color=STATUS_NEUTRAL)
-    ax_heat.set_xticks(range(n))
-    ax_heat.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
-    ax_heat.set_yticks(range(n))
-    ax_heat.set_yticklabels(labels, fontsize=9)
-    ax_heat.set_xticks(np.arange(-0.5, n, 1), minor=True)
-    ax_heat.set_yticks(np.arange(-0.5, n, 1), minor=True)
-    ax_heat.grid(which="minor", color="white", linewidth=1.5)
-    ax_heat.tick_params(which="minor", length=0)
-    ax_heat.set_title(
-        "Heldout pairwise ΔAUROC (patient-clustered bootstrap, 95% BCa CI)",
-        fontsize=11,
-    )
-    legend_elems = [
-        mpatches.Patch(facecolor=STATUS_SIGNIFICANT, label="CI excludes 0 (significant)"),
-        mpatches.Patch(facecolor=STATUS_NOT_SIGNIFICANT, label="CI includes 0 (not significant)"),
-    ]
-    ax_heat.legend(
-        handles=legend_elems,
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.18),
-        ncol=2,
-        fontsize=8,
-        frameon=False,
-    )
-
-    ax_table.axis("off")
-    y = 0.97
-    ax_table.text(
-        0.05,
-        y,
-        "Patient-clustered bootstrap, all pairs",
-        fontsize=11,
-        fontweight="bold",
-        transform=ax_table.transAxes,
-        va="top",
-    )
-    y -= 0.06
-    headers = ["Model A", "Model B", "ΔAUROC", "95% BCa CI", "sig."]
-    name_col_width = min(0.30, 0.09 + max_name_len * 0.011)
-    col_x = [
-        0.00,
-        name_col_width,
-        2 * name_col_width,
-        2 * name_col_width + 0.14,
-        2 * name_col_width + 0.34,
-    ]
-    for hdr, x in zip(headers, col_x):
-        ax_table.text(
-            x + 0.02,
-            y,
-            hdr,
-            color=STATUS_NEUTRAL,
-            fontsize=8,
-            fontweight="bold",
-            transform=ax_table.transAxes,
-            va="top",
-        )
-    y -= 0.04
-    ax_table.axhline(y, color="#e1e0d9", linewidth=0.8, xmin=0.02, xmax=0.98)
-    y -= 0.01
-
-    row_step = y / max(n_pairs, 1)
-    for _, row in bootstrap_matrix_df.iterrows():
-        color = STATUS_SIGNIFICANT if row["significant"] else "#0b0b0b"
-        vals = [
-            config_label(row["config_a"]),
-            config_label(row["config_b"]),
-            f"{row['delta_auroc']:+.4f}",
-            f"({row['ci_lower']:+.4f}, {row['ci_upper']:+.4f})",
-            "Yes" if row["significant"] else "No",
-        ]
-        for val, x in zip(vals, col_x):
-            ax_table.text(
-                x + 0.02, y, val, color=color, fontsize=7.5, transform=ax_table.transAxes, va="top"
-            )
-        y -= row_step
-
-    fig.tight_layout(pad=1.5)
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _plot_dispersion_table(df: pd.DataFrame, output_path) -> None:
-    """Render the frame/clip fold-dispersion table (mean +/- std across the 5
-    individually-trained fold models, not the ensemble)"""
-
-    def _level_table(level: str) -> tuple[list, list]:
-        header = ["Config"] + [metric_label(m) for m in _METRIC_ORDER]
-        cell_text = []
-        for _, row in df.iterrows():
-            cells = [config_label(row["config"], short=False)]
-            for m in _METRIC_ORDER:
-                cells.append(f"{row[f'{m}_{level}_mean']:.3f} +/- {row[f'{m}_{level}_std']:.3f}")
-            cell_text.append(cells)
-        return header, cell_text
-
-    header, cells_frame = _level_table("frame")
-    _, cells_clip = _level_table("clip")
-
-    col_max_len = [
-        max(len(str(row[j])) for row in [header] + cells_frame + cells_clip)
-        for j in range(len(header))
-    ]
-    col_widths = [n / sum(col_max_len) for n in col_max_len]
-    fig_w = max(11.0, 1.0 + 0.145 * sum(col_max_len))
-    fig_h = max(3.4, 0.9 + 0.45 * len(df) * 2)
-
-    fig, (ax_frame, ax_clip) = plt.subplots(2, 1, figsize=(fig_w, fig_h))
-    for ax, cell_text, level_title in (
-        (ax_frame, cells_frame, "Frame level"),
-        (ax_clip, cells_clip, "Clip level"),
-    ):
-        ax.axis("off")
-        table = ax.table(
-            cellText=cell_text,
-            colLabels=header,
-            colWidths=col_widths,
-            loc="center",
-            cellLoc="center",
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(7.5)
-        table.scale(1, 1.6)
-        for j in range(len(header)):
-            table[0, j].set_facecolor("#e1e0d9")
-            table[0, j].set_text_props(fontweight="bold")
-        for i, (_, row) in enumerate(df.iterrows(), start=1):
-            table[i, 0].set_facecolor(config_color(row["config"]))
-        ax.set_title(level_title, fontsize=10.5, fontweight="bold", pad=8)
-
-    fig.suptitle(
-        "Heldout test-set performance, mean +/- std across the 5 CV fold models",
-        fontsize=11.5,
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _load_clip_structure(manifest_path, frame_mask: np.ndarray | None = None) -> tuple:
-    """frame_mask, if given, must be a boolean array aligned to the manifest's
-    raw row order (see `_load_informative_mask`), rows outside it are
-    dropped before deriving clip-level structure, so a clip with zero
-    surviving frames is naturally absent from `clip_order`, and majority-vote
-    clip labels are recomputed only over surviving frames."""
-    df_hm = pd.read_csv(manifest_path)
-    if frame_mask is not None:
-        df_hm = df_hm[frame_mask].reset_index(drop=True)
-    clip_order = sorted(df_hm["clip_key"].unique().tolist())
-    clip_label_map = df_hm.groupby("clip_key")["label"].apply(lambda s: int(s.mode()[0]))
-    clip_patient_map = df_hm.groupby("clip_key")["patient_id"].first()
-    clip_labels = np.array([clip_label_map[c] for c in clip_order], dtype=int)
-    clip_patient_ids = np.array([clip_patient_map[c] for c in clip_order])
-    clip_keys_frame = df_hm["clip_key"].to_numpy()
-    manifest_frame_labels = df_hm["label"].to_numpy()
-    # Per-FRAME patient id
-    manifest_frame_patient_ids = df_hm["patient_id"].to_numpy()
-    return (
-        clip_order,
-        clip_labels,
-        clip_patient_ids,
-        clip_keys_frame,
-        manifest_frame_labels,
-        manifest_frame_patient_ids,
-    )
-
-
-def _load_informative_mask(manifest_path, mask_path) -> np.ndarray:
-    """Boolean array aligned to the manifest's raw row order (True = keep).
-
-    `mask_path` is a CSV with columns relative_path,informative, built once
-    by running the informative-frame RF classifier (already used for the
-    training/CV set, scripts/noninformative/filter_frames.py) on the heldout
-    frames
-    """
-    df_hm = pd.read_csv(manifest_path)
-    mask_df = pd.read_csv(mask_path)
-    lookup = dict(zip(mask_df["relative_path"], mask_df["informative"]))
-    keep = df_hm["relative_path"].map(lookup)
-    n_unknown = int(keep.isna().sum())
-    if n_unknown:
-        print(
-            f"  [warn] {n_unknown} manifest frame(s) not found in the informative mask, "
-            "keeping them by default."
-        )
-    return keep.fillna(1).astype(bool).to_numpy()
 
 
 def process_experiment(
     experiment_name: str,
     manifest_path: str,
     output_dir,
+    paper_dir,
     n_bootstrap: int = 10_000,
     alpha: float = 0.05,
     seed: int = 42,
     dry_run: bool = False,
-    filter_informative: bool = False,
+    filter_informative: bool = True,
     informative_mask_path: str | None = None,
 ) -> None:
-    from pathlib import Path
-
-    output_dir = Path(output_dir)
-    bootstrap_dir = output_dir / "bootstrap"
-
+    output_dir, paper_dir = Path(output_dir), Path(paper_dir)
     client = MlflowClient()
-    exp = client.get_experiment_by_name(experiment_name)
-    if exp is None:
-        print(f"Experiment '{experiment_name}' not found.")
-        return
 
-    for keys in ([p["config_a"], p["config_b"]] for p in PAIRS):
-        for k in keys:
-            get_model_entry(k)  # fail fast on a typo'd registry key
-
+    # -- Cohort -------------------------------------------------------------
     print(f"Loading clip structure from {manifest_path} ...")
-    (
-        clip_order_full,
-        clip_labels_full,
-        clip_patient_ids_full,
-        clip_keys_frame_full,
-        manifest_frame_labels_full,
-        manifest_frame_patient_ids_full,
-    ) = _load_clip_structure(manifest_path)
-
+    full = load_cohort(manifest_path)
     frame_mask = None
+    cohort = full
     if filter_informative:
-        mask_path = informative_mask_path or str(Path(manifest_path).parent / "informative_mask.csv")
-        frame_mask = _load_informative_mask(manifest_path, mask_path)
+        mask_path = informative_mask_path or str(
+            Path(manifest_path).parent / "informative_mask.csv"
+        )
+        frame_mask = load_informative_mask(manifest_path, mask_path)
         n_kept = int(frame_mask.sum())
         print(
             f"  Informative-frame filter ON ({mask_path}): keeping {n_kept}/{len(frame_mask)} "
             f"frames ({len(frame_mask) - n_kept} excluded)."
         )
-        clip_order, clip_labels, clip_patient_ids, _, _, _ = _load_clip_structure(
-            manifest_path, frame_mask
-        )
-        n_clips_dropped = len(clip_order_full) - len(clip_order)
-        if n_clips_dropped:
-            print(f"  {n_clips_dropped} clip(s) had zero surviving frames and were dropped.")
-        clip_keys_frame = clip_keys_frame_full[frame_mask]
-        manifest_frame_labels = manifest_frame_labels_full[frame_mask]
-        manifest_frame_patient_ids = manifest_frame_patient_ids_full[frame_mask]
-    else:
-        clip_order, clip_labels, clip_patient_ids = (
-            clip_order_full, clip_labels_full, clip_patient_ids_full,
-        )
-        clip_keys_frame = clip_keys_frame_full
-        manifest_frame_labels = manifest_frame_labels_full
-        manifest_frame_patient_ids = manifest_frame_patient_ids_full
-
-    n_clips, n_patients = len(clip_order), len(np.unique(clip_patient_ids))
-    print(f"  {n_patients} patients, {n_clips} clips, {len(clip_keys_frame)} frames.")
-
-    print(f"\nLoading heldout predictions for {len(MODEL_REGISTRY)} configuration(s)...")
-    configs = _load_all_configs(
-        client,
-        exp.experiment_id,
-        clip_order,
-        clip_keys_frame_full,
-        clip_labels,
-        manifest_frame_labels_full,
-        frame_mask,
+        cohort = load_cohort(manifest_path, frame_mask)
+        n_dropped = len(full.clip_order) - len(cohort.clip_order)
+        if n_dropped:
+            print(f"  {n_dropped} clip(s) had zero surviving frames and were dropped.")
+    n_patients = len(np.unique(cohort.clip_patient_ids))
+    print(
+        f"  {n_patients} patients, {len(cohort.clip_order)} clips, "
+        f"{len(cohort.frame_clip_keys)} frames."
     )
+
+    # -- Predictions --------------------------------------------------------
+    runs = load_cv_runs(client, experiment_name)
+    print(f"\nLoading heldout predictions for {len(runs)} configuration(s)...")
+    configs = {}
+    for model_key, model_runs in runs.items():
+        print(f"  {model_key}: loading {len(model_runs.children)} fold(s)...")
+        data = load_predictions(client, model_runs, full, cohort, frame_mask)
+        if data is not None:
+            configs[model_key] = data
     if not configs:
         print("No configurations could be loaded, aborting.")
         return
 
-    per_fold_rows = []
-    for model_key, data in configs.items():
-        entry = get_model_entry(model_key)
-        for i, (m, thr, m_frame) in enumerate(
-            zip(data["fold_metrics"], data["fold_thresholds"], data["fold_metrics_frame"]), start=1
-        ):
-            per_fold_rows.append(
-                {
-                    "config": model_key,
-                    "architecture": entry.architecture,
-                    "pretrain_data": entry.pretrain_data,
-                    "pretrain_method": entry.pretrain_method,
-                    "fold": i,
-                    "threshold": round(thr, 4),
-                    **{k: round(v, 4) for k, v in m.items()},
-                    **{f"{k}_frame": round(v, 4) for k, v in m_frame.items()},
-                }
-            )
-    per_fold_df = pd.DataFrame(per_fold_rows)
+    # -- Tables -------------------------------------------------------------
+    per_fold_df = tables.per_fold_table(configs)
     print(f"\nPer-fold table: {len(per_fold_df)} rows.")
-
-    # Fold-level dispersion (not the ensemble) -- descriptive counterpart to
-    # the ensemble table below.
-    dispersion_rows = []
-    for model_key, data in configs.items():
-        entry = get_model_entry(model_key)
-        row = {
-            "config": model_key,
-            "architecture": entry.architecture,
-            "pretrain_data": entry.pretrain_data,
-            "pretrain_method": entry.pretrain_method,
-            "n_folds": len(data["fold_metrics"]),
-        }
-        for level, fold_metrics_list in (
-            ("frame", data["fold_metrics_frame"]),
-            ("clip", data["fold_metrics"]),
-        ):
-            for metric_name in _METRIC_ORDER:
-                vals = np.array([fm[metric_name] for fm in fold_metrics_list], dtype=float)
-                vals = vals[~np.isnan(vals)]
-                row[f"{metric_name}_{level}_mean"] = (
-                    round(float(vals.mean()), 4) if len(vals) else float("nan")
-                )
-                row[f"{metric_name}_{level}_std"] = (
-                    round(float(vals.std(ddof=1)), 4) if len(vals) > 1 else 0.0
-                )
-        dispersion_rows.append(row)
-    dispersion_df = pd.DataFrame(dispersion_rows)
+    dispersion_df = tables.fold_dispersion_table(configs)
     print(f"Frame/clip fold-dispersion table: {len(dispersion_df)} configs.")
 
     print(f"\nBootstrapping ensemble metrics per config (n_bootstrap={n_bootstrap})...")
-    config_bootstrap: dict = {}  # model_key -> {metric_name -> clip-level bootstrap result}
-    config_bootstrap_frame: dict = {}  # model_key -> {metric_name -> frame-level bootstrap result}
-    per_config_rows = []
-    for model_key, data in configs.items():
-        entry = get_model_entry(model_key)
-        ens_probs = data["ensemble_clip_probs"]
-        threshold = data["cv_mean_clip_threshold"]
-        frame_threshold = data["cv_mean_threshold"]
+    ensemble = tables.ensemble_table(configs, cohort, n_bootstrap, seed, alpha)
 
-        metric_results = {}
-        frame_metric_results = {}
-        for metric_name in _METRIC_ORDER:
-            fn = _make_metric_bootstrap_fn(metric_name, clip_labels, ens_probs, threshold)
-            metric_results[metric_name] = patient_clustered_bootstrap(
-                clip_labels, clip_patient_ids, fn, n_bootstrap=n_bootstrap, seed=seed, alpha=alpha
-            )
-            fn_frame = _make_metric_bootstrap_fn(
-                metric_name, manifest_frame_labels, data["ensemble_frame_probs"], frame_threshold
-            )
-            frame_metric_results[metric_name] = patient_clustered_bootstrap(
-                manifest_frame_labels,
-                manifest_frame_patient_ids,
-                fn_frame,
-                n_bootstrap=n_bootstrap,
-                seed=seed,
-                alpha=alpha,
-            )
-        config_bootstrap[model_key] = metric_results
-        config_bootstrap_frame[model_key] = frame_metric_results
+    print(f"\nComputing effect decomposition for {len(tables.PAIRS)} pair(s)...")
+    pair_df, pair_boots = tables.pair_table(configs, cohort, n_bootstrap, seed, alpha)
 
-        best_fold_auroc = (
-            float(roc_auc_score(clip_labels, data["best_fold_clip_probs"]))
-            if len(np.unique(clip_labels)) > 1
-            else float("nan")
-        )
+    print(f"\nBootstrapping full pairwise matrix, clip-level (n_bootstrap={n_bootstrap})...")
+    matrix_df, matrix_boots = tables.pairwise_matrix(configs, cohort, n_bootstrap, seed, alpha)
+    n_sig = int(matrix_df["significant"].sum())
+    print(f"  {n_sig}/{len(matrix_df)} pairs significant (CI excludes 0)")
 
-        row = {
-            "config": model_key,
-            "architecture": entry.architecture,
-            "pretrain_data": entry.pretrain_data,
-            "pretrain_method": entry.pretrain_method,
-            "threshold": round(threshold, 4),
-            "threshold_frame": round(frame_threshold, 4),
-            "best_fold_auroc": round(best_fold_auroc, 4),
-        }
-        for metric_name in _METRIC_ORDER:
-            r = metric_results[metric_name]
-            row[metric_name] = round(r["point"], 4)
-            row[f"{metric_name}_ci_bca_lower"] = round(r["ci_bca"][0], 4)
-            row[f"{metric_name}_ci_bca_upper"] = round(r["ci_bca"][1], 4)
-            row[f"{metric_name}_n_bootstrap_dropped"] = r["n_dropped"]
-
-            rf = frame_metric_results[metric_name]
-            row[f"{metric_name}_frame"] = round(rf["point"], 4)
-            row[f"{metric_name}_frame_ci_bca_lower"] = round(rf["ci_bca"][0], 4)
-            row[f"{metric_name}_frame_ci_bca_upper"] = round(rf["ci_bca"][1], 4)
-            row[f"{metric_name}_frame_n_bootstrap_dropped"] = rf["n_dropped"]
-        per_config_rows.append(row)
-
-        a, af = metric_results["auroc"], frame_metric_results["auroc"]
-        print(
-            f"  {model_key:28s} thr={threshold:.3f}  AUROC={a['point']:.4f}  "
-            f"BCa=({a['ci_bca'][0]:.4f}-{a['ci_bca'][1]:.4f})  "
-            f"dropped={a['n_dropped']}/{n_bootstrap}  |  "
-            f"frame thr={frame_threshold:.3f} AUROC={af['point']:.4f}  "
-            f"BCa=({af['ci_bca'][0]:.4f}-{af['ci_bca'][1]:.4f})"
-        )
-    per_config_df = pd.DataFrame(per_config_rows)
-
-    print(f"\nComputing effect decomposition for {len(PAIRS)} pair(s)...")
-    pair_bootstrap: dict = {}
-    pair_rows = []
-    ens_delong_p, best_delong_p = [], []
-    for pair in PAIRS:
-        a, b = pair["config_a"], pair["config_b"]
-        if a not in configs or b not in configs:
-            print(f"  [warn] {pair['pair_id']}: missing config(s), skipping.")
-            continue
-
-        ens_a, ens_b = configs[a]["ensemble_clip_probs"], configs[b]["ensemble_clip_probs"]
-        bf_a, bf_b = configs[a]["best_fold_clip_probs"], configs[b]["best_fold_clip_probs"]
-
-        def delta_fn(w, pa=ens_a, pb=ens_b):
-            return float(
-                roc_auc_score(clip_labels, pa, sample_weight=w)
-                - roc_auc_score(clip_labels, pb, sample_weight=w)
-            )
-
-        boot = patient_clustered_bootstrap(
-            clip_labels, clip_patient_ids, delta_fn, n_bootstrap=n_bootstrap, seed=seed, alpha=alpha
-        )
-        pair_bootstrap[pair["pair_id"]] = boot
-
-        auc_a_ens, auc_b_ens, z_ens, p_ens = delong_test(clip_labels, ens_a, ens_b)
-        auc_a_bf, auc_b_bf, z_bf, p_bf = delong_test(clip_labels, bf_a, bf_b)
-        ens_delong_p.append(p_ens)
-        best_delong_p.append(p_bf)
-
-        pair_rows.append(
-            {
-                "pair_id": pair["pair_id"],
-                "effect": pair["effect"],
-                "architecture": pair["architecture"],
-                "config_a": a,
-                "config_b": b,
-                "auroc_a_ensemble": round(auc_a_ens, 4),
-                "auroc_b_ensemble": round(auc_b_ens, 4),
-                "delta_auroc_ensemble": round(boot["point"], 4),
-                # BCa only -- see module docstring (metrics not symmetrically distributed).
-                "boot_ci_bca_lower": round(boot["ci_bca"][0], 4),
-                "boot_ci_bca_upper": round(boot["ci_bca"][1], 4),
-                "n_bootstrap_dropped": boot["n_dropped"],
-                "delong_ensemble_z": round(z_ens, 3),
-                "delong_ensemble_p": round(p_ens, 4),
-                "auroc_a_bestfold": round(auc_a_bf, 4),
-                "auroc_b_bestfold": round(auc_b_bf, 4),
-                "delta_auroc_bestfold": round(auc_a_bf - auc_b_bf, 4),
-                "delong_bestfold_z": round(z_bf, 3),
-                "delong_bestfold_p": round(p_bf, 4),
-            }
-        )
-        print(
-            f"  {pair['pair_id']:20s} DeltaAUROC={boot['point']:+.4f}  "
-            f"BCa=({boot['ci_bca'][0]:+.4f},{boot['ci_bca'][1]:+.4f})  "
-            f"DeLong(ens) p={p_ens:.4f}  DeLong(best) p={p_bf:.4f}"
-        )
-
-    pair_df = pd.DataFrame(pair_rows)
-    if not pair_df.empty:
-        pair_df["delong_ensemble_p_holm"] = np.round(holm_bonferroni(ens_delong_p), 4)
-        pair_df["delong_bestfold_p_holm"] = np.round(holm_bonferroni(best_delong_p), 4)
-
-    # Full 9x9 patient-clustered bootstrap matrix, clip-level, all 36 pairs,
-    # exploratory/traceability only: not corrected for multiple comparisons,
-    # and not one of the 5 pre-specified architecture-matched comparisons.
-    # Reuses the same primary, patient-clustered methodology as those 5
-    # pairs, just applied to every pair instead of 5.
-    print(f"\nBootstrapping full 9x9 pairwise matrix, clip-level (n_bootstrap={n_bootstrap})...")
-    matrix_rows = []
-    config_keys = list(configs.keys())
-    for a, b in itertools.combinations(config_keys, 2):
-        probs_a, probs_b = configs[a]["ensemble_clip_probs"], configs[b]["ensemble_clip_probs"]
-
-        def matrix_delta_fn(w, pa=probs_a, pb=probs_b):
-            return float(
-                roc_auc_score(clip_labels, pa, sample_weight=w)
-                - roc_auc_score(clip_labels, pb, sample_weight=w)
-            )
-
-        boot = patient_clustered_bootstrap(
-            clip_labels,
-            clip_patient_ids,
-            matrix_delta_fn,
-            n_bootstrap=n_bootstrap,
-            seed=seed,
-            alpha=alpha,
-        )
-        lo, hi = boot["ci_bca"]
-        matrix_rows.append(
-            {
-                "config_a": a,
-                "config_b": b,
-                "delta_auroc": round(boot["point"], 4),
-                "ci_lower": round(lo, 4),
-                "ci_upper": round(hi, 4),
-                "significant": bool(lo > 0 or hi < 0),
-            }
-        )
-    bootstrap_matrix_df = pd.DataFrame(matrix_rows).sort_values("ci_lower").reset_index(drop=True)
-    p_matrix_boot = pd.DataFrame(np.nan, index=config_keys, columns=config_keys)
-    for row in matrix_rows:
-        p_matrix_boot.loc[row["config_a"], row["config_b"]] = 0.0 if row["significant"] else 1.0
-
-    n_sig = int(bootstrap_matrix_df["significant"].sum())
-    print(f"  {n_sig}/{len(bootstrap_matrix_df)} pairs significant (CI excludes 0)")
-
-    # Friedman at the PATIENT level: rows = heldout patients (blocks),
-    # columns = the 9 model configs (treatments), values = each patient's mean
-    # absolute error on the ensemble CLIP predictions. Mean absolute error is
-    # defined for every patient regardless of class balance (2/19 patients
-    # have only one class among their clips, so a per-patient AUROC would be
-    # undefined for them), so all patients contribute. Lower error is
-    # better, so ranks are reversed (higher_is_better=False).
     print("Running Friedman on heldout clip mean absolute error (per-patient matrix)...")
-    patient_error_rows = []
-    for patient in np.unique(clip_patient_ids):
-        mask = clip_patient_ids == patient
-        row = {"patient_id": patient}
-        for model_key, data in configs.items():
-            row[model_key] = float(
-                np.mean(np.abs(clip_labels[mask] - data["ensemble_clip_probs"][mask]))
-            )
-        patient_error_rows.append(row)
-    patient_error_df = pd.DataFrame(patient_error_rows).set_index("patient_id")
-    friedman_stat_patient, friedman_p_patient = run_friedman(patient_error_df)
+    patient_error_df = tables.patient_error_table(configs, cohort)
+    friedman_stat, friedman_p = run_friedman(patient_error_df)
     print(
-        f"  {len(patient_error_df)} patients  Friedman chi2={friedman_stat_patient:.4f}  "
-        f"p={friedman_p_patient:.4f}"
+        f"  {len(patient_error_df)} patients  Friedman chi2={friedman_stat:.4f}  p={friedman_p:.4f}"
     )
+
+    paper = {
+        "table1_heldout_ensemble": tables.paper_table1(ensemble),
+        "tableS1_fold_dispersion": tables.paper_table_s1(configs),
+        "text_comparisons": tables.paper_comparisons(matrix_boots, configs, cohort),
+    }
 
     if dry_run:
         print("\n[DRY RUN] Skipping file writes.")
-        print("\n--- Frame/clip fold-dispersion table ---")
-        print(dispersion_df.to_string(index=False))
-        print("\n--- Per-config table ---")
-        print(per_config_df.to_string(index=False))
-        print("\n--- Effect decomposition ---")
-        print(pair_df.to_string(index=False))
-        print("\n--- Full 9x9 bootstrap matrix (exploratory) ---")
-        print(bootstrap_matrix_df.to_string(index=False))
-        print("\n--- Per-patient mean absolute error ---")
-        print(patient_error_df.to_string())
+        for title, df in (
+            ("Frame/clip fold-dispersion table", dispersion_df),
+            ("Per-config table", ensemble.table),
+            ("Effect decomposition", pair_df),
+            ("Full pairwise bootstrap matrix (exploratory)", matrix_df),
+            ("Per-patient mean absolute error", patient_error_df),
+            *paper.items(),
+        ):
+            print(f"\n--- {title} ---\n{df.to_string(index=df is patient_error_df)}")
         return
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # -- Outputs ------------------------------------------------------------
+    bootstrap_dir = output_dir / "bootstrap"
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
 
-    per_fold_df.to_csv(output_dir / "per_fold_heldout_metrics.csv", index=False)
-    (output_dir / "per_fold_heldout_metrics.md").write_text(to_markdown(per_fold_df))
-
-    dispersion_df.to_csv(output_dir / "heldout_fold_dispersion.csv", index=False)
-    (output_dir / "heldout_fold_dispersion.md").write_text(to_markdown(dispersion_df))
-    _plot_dispersion_table(dispersion_df, output_dir / "heldout_fold_dispersion.png")
-
-    per_config_df.to_csv(output_dir / "heldout_ensemble_metrics.csv", index=False)
-    (output_dir / "heldout_ensemble_metrics.md").write_text(to_markdown(per_config_df))
-
-    pair_df.to_csv(output_dir / "effect_decomposition.csv", index=False)
-    (output_dir / "effect_decomposition.md").write_text(to_markdown(pair_df))
-
-    bootstrap_matrix_df.to_csv(output_dir / "heldout_pairwise_bootstrap.csv", index=False)
-    _plot_bootstrap_matrix(
-        p_matrix_boot, bootstrap_matrix_df, output_dir / "heldout_pairwise_bootstrap.png"
+    write_table(per_fold_df, output_dir / "per_fold_heldout_metrics")
+    write_table(dispersion_df, output_dir / "heldout_fold_dispersion")
+    plots.plot_fold_dispersion_table(dispersion_df, output_dir / "heldout_fold_dispersion.png")
+    write_table(ensemble.table, output_dir / "heldout_ensemble_metrics")
+    write_table(pair_df, output_dir / "effect_decomposition")
+    matrix_df.to_csv(output_dir / "heldout_pairwise_bootstrap.csv", index=False)
+    plots.plot_pairwise_matrix(
+        list(configs), matrix_df, output_dir / "heldout_pairwise_bootstrap.png"
     )
 
-    for model_key, metric_results in config_bootstrap.items():
-        for metric_name, result in metric_results.items():
-            np.save(bootstrap_dir / f"{model_key}_{metric_name}.npy", result["replicates"])
-    for model_key, metric_results in config_bootstrap_frame.items():
-        for metric_name, result in metric_results.items():
-            np.save(bootstrap_dir / f"{model_key}_{metric_name}_frame.npy", result["replicates"])
-    for pair_id, result in pair_bootstrap.items():
+    for model_key in configs:
+        for metric in tables.METRICS:
+            np.save(
+                bootstrap_dir / f"{model_key}_{metric}.npy",
+                ensemble.clip[model_key][metric]["replicates"],
+            )
+            np.save(
+                bootstrap_dir / f"{model_key}_{metric}_frame.npy",
+                ensemble.frame[model_key][metric]["replicates"],
+            )
+    for pair_id, result in pair_boots.items():
         np.save(bootstrap_dir / f"{pair_id}.npy", result["replicates"])
 
-    names = per_config_df["config"].tolist()
-    all_metrics_ci_bca = {
-        m: list(zip(per_config_df[f"{m}_ci_bca_lower"], per_config_df[f"{m}_ci_bca_upper"]))
-        for m in _METRIC_ORDER
-    }
-    all_metrics_ci_bca_frame = {
-        m: list(
-            zip(per_config_df[f"{m}_frame_ci_bca_lower"], per_config_df[f"{m}_frame_ci_bca_upper"])
-        )
-        for m in _METRIC_ORDER
-    }
-    _plot_two_level_grouped_metrics(
-        names,
-        {m: per_config_df[f"{m}_frame"].tolist() for m in _METRIC_ORDER},
-        all_metrics_ci_bca_frame,
-        {m: per_config_df[m].tolist() for m in _METRIC_ORDER},
-        all_metrics_ci_bca,
+    plots.plot_ensemble_metrics(
+        ensemble.table,
         "Heldout ensemble metrics per configuration (95% BCa CI, patient-clustered)",
         output_dir / "heldout_ensemble_metrics_bar.png",
     )
-
     if not pair_df.empty:
-        _plot_forest(
+        plots.plot_forest(
             pair_df,
             "boot_ci_bca_lower",
             "boot_ci_bca_upper",
             "Effect decomposition, clip-level (95% BCa CI)",
             output_dir / "effect_decomposition_bca.png",
         )
-        _plot_delong_pairs(pair_df, output_dir / "delong_pairs.png")
-
-    for architecture, sub in per_config_df.groupby("architecture", sort=False):
-        sub_ci_bca = {
-            m: list(zip(sub[f"{m}_ci_bca_lower"], sub[f"{m}_ci_bca_upper"])) for m in _METRIC_ORDER
-        }
-        sub_ci_bca_frame = {
-            m: list(zip(sub[f"{m}_frame_ci_bca_lower"], sub[f"{m}_frame_ci_bca_upper"]))
-            for m in _METRIC_ORDER
-        }
-        _plot_two_level_grouped_metrics(
-            sub["config"].tolist(),
-            {m: sub[f"{m}_frame"].tolist() for m in _METRIC_ORDER},
-            sub_ci_bca_frame,
-            {m: sub[m].tolist() for m in _METRIC_ORDER},
-            sub_ci_bca,
+        plots.plot_delong_pairs(pair_df, output_dir / "delong_pairs.png")
+    for architecture, sub in ensemble.table.groupby("architecture", sort=False):
+        plots.plot_ensemble_metrics(
+            sub,
             f"Heldout ensemble metrics, {architecture} (95% BCa CI, patient-clustered)",
             output_dir / f"arch_{slug(architecture)}_heldout_metrics.png",
         )
-
-    roc_data_clip = []
-    for model_key, data in configs.items():
-        probs = data["ensemble_clip_probs"]
-        fpr, tpr, _ = roc_curve(clip_labels, probs)
-        roc_data_clip.append(
-            {
-                "name": config_label(model_key),
-                "fpr": fpr,
-                "tpr": tpr,
-                "auc": roc_auc_score(clip_labels, probs),
-                "color": config_color(model_key),
-            }
-        )
-    roc_data_frame = []
-    for model_key, data in configs.items():
-        probs = data["ensemble_frame_probs"]
-        fpr, tpr, _ = roc_curve(manifest_frame_labels, probs)
-        roc_data_frame.append(
-            {
-                "name": config_label(model_key),
-                "fpr": fpr,
-                "tpr": tpr,
-                "auc": roc_auc_score(manifest_frame_labels, probs),
-                "color": config_color(model_key),
-            }
-        )
-    fig, (ax_frame, ax_clip) = plt.subplots(1, 2, figsize=(15.5, 8.2))
-    plot_roc_curves(roc_data_frame, title="Frame level", ax=ax_frame)
-    plot_roc_curves(roc_data_clip, title="Clip level (mean-probability aggregation)", ax=ax_clip)
-    fig.suptitle("Heldout ensemble ROC curves", fontsize=13, fontweight="bold")
-    fig.tight_layout(rect=(0, 0.17, 1, 0.95))
-    fig.savefig(output_dir / "roc_curves_ensemble.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    plots.plot_ensemble_roc(configs, cohort, output_dir / "roc_curves_ensemble.png")
 
     patient_error_df.to_csv(output_dir / "heldout_patient_mae.csv")
     plot_friedman_ranks(
         patient_error_df,
-        friedman_stat_patient,
-        friedman_p_patient,
+        friedman_stat,
+        friedman_p,
         output_dir / "friedman_ranks_heldout_patient.png",
-        title=f"Model rankings, heldout clip mean absolute error ({len(patient_error_df)} patients)",
+        title=(
+            "Model rankings, heldout clip mean absolute error "
+            f"({len(patient_error_df)} patients)"
+        ),
         higher_is_better=False,
     )
 
-    print(f"\nOutputs written to {output_dir}")
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    for name, df in paper.items():
+        write_table(df, paper_dir / name)
+
+    print(f"\nOutputs written to {output_dir} and {paper_dir}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1250,25 +239,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--manifest", default=str(cfg.ulcer.heldout / "heldout_temporal_manifest.csv"))
     p.add_argument("--mlflow-uri", default=cfg.mlflow_db)
     p.add_argument("--output-dir", default=str(cfg.results_heldout_dir))
+    p.add_argument("--paper-dir", default=str(cfg.results_ulcer_dir / "paper"))
     p.add_argument("--n-bootstrap", type=int, default=10_000)
     p.add_argument("--alpha", type=float, default=0.05)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--dry-run", action="store_true", help="Compute and print, skip writing files")
     p.add_argument(
         "--filter-informative",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Exclude non-informative frames from the heldout set before aggregation, using "
-            "the precomputed data/ulcer/heldout/informative_mask.csv (see "
-            "_load_informative_mask docstring). Off by default; no re-inference is needed "
-            "either way, since per-frame predictions don't depend on which other frames "
-            "are present."
+            "Exclude non-informative held-out frames before aggregation (default: on, as for "
+            "training and CV data). Uses data/ulcer/heldout/informative_mask.csv; no "
+            "re-inference needed, per-frame predictions do not depend on other frames."
         ),
     )
     p.add_argument(
         "--informative-mask",
         default=None,
-        help="Path to the informative-frame mask CSV (default: informative_mask.csv next to --manifest).",
+        help="Informative-frame mask CSV (default: informative_mask.csv next to --manifest).",
     )
     return p
 
@@ -1282,6 +271,7 @@ if __name__ == "__main__":
         args.experiment,
         args.manifest,
         args.output_dir,
+        args.paper_dir,
         n_bootstrap=args.n_bootstrap,
         alpha=args.alpha,
         seed=args.seed,
